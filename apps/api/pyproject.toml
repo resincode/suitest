@@ -5,9 +5,9 @@ description = "Suitest FastAPI HTTP service"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "fastapi>=0.141.1",
-  "uvicorn[standard]>=0.52.1",
+  "uvicorn[standard]>=0.52.3",
   "pydantic>=2.9.0",
-  "pydantic-settings>=2.6.0",
+  "pydantic-settings>=2.15.0",
   "structlog>=26.1.0",
   "fastapi-users[sqlalchemy,oauth]>=15.0.5",
   "httpx-oauth>=0.16.0",
@@ -27,7 +27,7 @@ dependencies = [
   "slowapi>=0.1.9",
   "arq>=0.26",
   "aioboto3>=12.4",
-  "fpdf2>=2.8.5",
+  "fpdf2>=2.8.8",
 ]
 
 [build-system]
