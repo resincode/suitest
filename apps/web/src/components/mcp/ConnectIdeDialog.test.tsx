@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MCP_INSTALL_DOCS_URL,
+} from "@/components/mcp/ConnectIdeDialog";
+import {
   IDE_CLIENTS,
   claudeCmd,
   installCmd,
@@ -27,6 +30,12 @@ describe("ConnectIdeDialog commands", () => {
     );
     expect(installCmd(IDE_CLIENTS.windsurf)).toBe(
       "npx -y @suiflex/suitest-mcp install --client windsurf",
+    );
+  });
+
+  it("links the IDE setup docs to the public MCP install guide", async () => {
+    expect(MCP_INSTALL_DOCS_URL).toBe(
+      "https://suitest.suiflex.dev/docs/install/mcp-server/",
     );
   });
 });

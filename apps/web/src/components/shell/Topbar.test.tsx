@@ -178,4 +178,12 @@ describe("<Topbar>", () => {
       expect(list).toHaveTextContent(label);
     }
   });
+
+  it("points the help icon at the public docs home", async () => {
+    await renderTopbar("/dashboard");
+    expect(screen.getByTestId("topbar-help-link")).toHaveAttribute(
+      "href",
+      "https://suitest.suiflex.dev/docs/",
+    );
+  });
 });

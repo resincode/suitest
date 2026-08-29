@@ -26,6 +26,8 @@ import {
   type IdeTab,
 } from "@/components/mcp/connect-ide-commands";
 
+export const MCP_INSTALL_DOCS_URL = "https://suitest.suiflex.dev/docs/install/mcp-server/";
+
 /**
  * "Connect Suitest to your AI IDE" — the outward MCP setup flow (Cursor /
  * Claude Code / any MCP-capable agent). Key creation lives in Settings → API
@@ -226,8 +228,11 @@ export function ConnectIdeDialog(): React.ReactElement {
             title="Add it to your IDE"
             aside={
               <a
-                href="/docs/MCP-USAGE"
+                href={MCP_INSTALL_DOCS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-[12px] font-medium text-accent hover:underline"
+                data-testid="connect-ide-docs-link"
               >
                 Docs
               </a>

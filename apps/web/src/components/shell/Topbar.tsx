@@ -50,6 +50,8 @@ const COMMAND_TARGETS: ReadonlyArray<CommandTarget> = [
   { label: "Go to Inbox", to: "/inbox", icon: Inbox },
 ];
 
+const PUBLIC_DOCS_HOME = "https://suitest.suiflex.dev/docs/";
+
 export interface TopbarProps {
   /** External docs link opened by the help icon. */
   helpHref?: string;
@@ -63,7 +65,7 @@ export interface TopbarProps {
  * tools arrive in M1d.
  */
 export function Topbar({
-  helpHref = "https://github.com/suitest/docs",
+  helpHref = PUBLIC_DOCS_HOME,
   onMenuClick,
 }: TopbarProps = {}): React.ReactElement {
   const [commandOpen, setCommandOpen] = useState(false);
