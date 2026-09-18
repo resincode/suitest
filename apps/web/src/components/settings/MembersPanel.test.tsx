@@ -107,9 +107,8 @@ describe("MembersPanel", () => {
     await user.click(await screen.findByTestId("invite-button"));
     await user.type(await screen.findByLabelText(/email/i), "nobody@example.test");
 
-    const { promise, resolve } = Promise.withResolvers<void>();
-    setTimeout(resolve, 600);
-    await promise;
+    // Project `lib` target is ES2023 — no `Promise.withResolvers` yet.
+    await new Promise<void>((resolve) => setTimeout(resolve, 600));
     expect(screen.queryByTestId("invite-lookup-match")).not.toBeInTheDocument();
   });
 

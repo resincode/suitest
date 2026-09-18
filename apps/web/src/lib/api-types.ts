@@ -5176,6 +5176,8 @@ export interface components {
              * @enum {string}
              */
             kind: "DEPLOY_GATE_FAIL" | "MANUAL_RUN_FAIL" | "MCP_HEALTH" | "FLAKY_PROMOTION" | "AGENT_GENERATION" | "AGENT_DIAGNOSIS" | "WORKSPACE_INVITE";
+            /** Ref */
+            ref?: string | null;
             /**
              * Status
              * @default unread

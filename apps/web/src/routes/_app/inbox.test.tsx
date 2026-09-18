@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { server } from "@/mocks/server";
 import { routeTree } from "@/routeTree.gen";
-import { CLOUD_CAPS, ZERO_CAPS, resetCaps, setCaps } from "@/test/capabilities";
+import { CLOUD_CAPS, resetCaps, setCaps } from "@/test/capabilities";
 
 function renderInbox() {
   const queryClient = new QueryClient({
@@ -80,9 +80,8 @@ describe("Inbox screen", () => {
   it("renders the skeleton before /inbox resolves", async () => {
     server.use(
       http.get("*/api/v1/inbox", async () => {
-        const { promise, resolve } = Promise.withResolvers<void>();
-        setTimeout(resolve, 50);
-        await promise;
+        // Project `lib` target is ES2023 — no `Promise.withResolvers` yet.
+        await new Promise<void>((resolve) => setTimeout(resolve, 50));
         return HttpResponse.json(FIXTURE);
       }),
     );
