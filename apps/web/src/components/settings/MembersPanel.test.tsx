@@ -74,6 +74,45 @@ describe("MembersPanel", () => {
     expect(await within(panel).findByText("Copied")).toBeInTheDocument();
   });
 
+  it("shows a confirmation chip when the invited email already has an account (M1e-9)", async () => {
+    server.use(
+      http.get("*/api/v1/workspaces/ws_1/invitations", () => HttpResponse.json({ items: [] })),
+      http.get("*/api/v1/workspaces/ws_1/invitations/lookup", ({ request }) => {
+        const email = new URL(request.url).searchParams.get("email");
+        if (email === "alice@example.test") {
+          return HttpResponse.json({ exists: true, name: "Alice" });
+        }
+        return HttpResponse.json({ exists: false, name: null });
+      }),
+    );
+    renderPanel("ADMIN");
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId("invite-button"));
+    await user.type(await screen.findByLabelText(/email/i), "alice@example.test");
+
+    expect(
+      await screen.findByTestId("invite-lookup-match", undefined, { timeout: 2000 }),
+    ).toHaveTextContent("Alice is already registered");
+  });
+
+  it("does not show a confirmation chip for an unregistered email", async () => {
+    server.use(
+      http.get("*/api/v1/workspaces/ws_1/invitations", () => HttpResponse.json({ items: [] })),
+      http.get("*/api/v1/workspaces/ws_1/invitations/lookup", () =>
+        HttpResponse.json({ exists: false, name: null }),
+      ),
+    );
+    renderPanel("ADMIN");
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId("invite-button"));
+    await user.type(await screen.findByLabelText(/email/i), "nobody@example.test");
+
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 600);
+    await promise;
+    expect(screen.queryByTestId("invite-lookup-match")).not.toBeInTheDocument();
+  });
+
   it("revokes a pending invite and invalidates the cache", async () => {
     let listCalls = 0;
     let revoked = false;

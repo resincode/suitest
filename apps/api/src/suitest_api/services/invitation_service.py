@@ -88,6 +88,31 @@ class InvitationService:
         if membership is None or membership.role not in {Role.ADMIN, Role.OWNER}:
             raise InvitationForbiddenError
 
+    @staticmethod
+    def _is_placeholder_account(user: User) -> bool:
+        """A row created by "add member by email": inactive, unverified, and
+        carrying the unusable ``!``-prefixed hash from
+        :func:`create_placeholder_user`. Never a real, sign-in-capable
+        account — safe to ignore when deciding whether an email "already has
+        an account" for invite UX (autocomplete, in-app approval)."""
+        return (
+            user.hashed_password.startswith("!") and not user.is_active and not user.is_verified
+        )
+
+    async def lookup_user(self, *, workspace_id: str, email: str, actor: User) -> str | None:
+        """Return the display name of a real registered account for ``email``.
+
+        ``None`` when no account exists, or the only match is an unclaimed
+        placeholder. Gated the same as invite creation (``_ensure_manager``)
+        so this never becomes a workspace-agnostic email oracle: it tells an
+        admin nothing they could not already learn by sending the invite.
+        """
+        await self._ensure_manager(workspace_id, actor)
+        user = await self.memberships.find_user_by_email(email.strip().lower())
+        if user is None or self._is_placeholder_account(user):
+            return None
+        return user.name
+
     async def create_invitation(
         self, *, workspace_id: str, email: str, role: Role, actor: User
     ) -> InvitationLink:
@@ -114,6 +139,15 @@ class InvitationService:
     async def list_invitations(self, *, workspace_id: str, actor: User) -> list[Invitation]:
         await self._ensure_manager(workspace_id, actor)
         return await self.repo.list_for_workspace(workspace_id)
+
+    async def list_my_invitations(self, *, actor: User) -> list[Invitation]:
+        """Pending invites addressed to ``actor``'s email, across workspaces.
+
+        Backs the in-app "pending invites" surface (Inbox, M1e-9): ``actor``
+        is not yet a member of the target workspace(s), so this cannot be a
+        workspace-scoped read like :meth:`list_invitations`.
+        """
+        return await self.repo.list_for_email(actor.email)
 
     async def validate_token(self, token: str) -> Invitation:
         invitation = await self.repo.get_active_by_token_hash(hash_token(token))
@@ -164,12 +198,7 @@ class InvitationService:
         # (``create_placeholder_user``). A legitimate disabled account, or an
         # active account still awaiting verification, has a real password hash
         # and must go through the existing-account sign-in path instead.
-        placeholder = (
-            existing is not None
-            and existing.hashed_password.startswith("!")
-            and not existing.is_active
-            and not existing.is_verified
-        )
+        placeholder = existing is not None and self._is_placeholder_account(existing)
         if existing is None:
             user = User(
                 id=uuid.uuid4(),
@@ -211,6 +240,42 @@ class InvitationService:
         await self.repo.mark_accepted(invitation)
         await self.session.flush()
         return AcceptOutcome(user=user, issues_session=issues_session)
+
+    async def approve(self, *, invitation_id: str, actor: User) -> Membership:
+        """Approve a pending invite as the already-authenticated invitee.
+
+        The in-app counterpart to :meth:`accept`: no token, no password, no
+        "set your name" detour — the caller already has a real session. The
+        email-match check is the same invariant :meth:`accept` enforces for
+        the token path (M1e security fix): the invited address is the only
+        one that may claim it, checked against the *authenticated* user, not
+        anything client-supplied.
+        """
+        invitation = await self.repo.get_active_by_id(invitation_id)
+        if invitation is None:
+            raise InvitationNotFoundError
+        if actor.email.strip().lower() != invitation.email.lower():
+            raise InvitationEmailMismatchError
+        membership = await self.memberships.get(invitation.workspace_id, actor.id)
+        if membership is None:
+            membership = Membership(
+                workspace_id=invitation.workspace_id,
+                user_id=actor.id,
+                role=invitation.role,
+            )
+            self.session.add(membership)
+        await self.repo.mark_accepted(invitation)
+        await self.session.flush()
+        return membership
+
+    async def decline(self, *, invitation_id: str, actor: User) -> None:
+        """Decline a pending invite as the already-authenticated invitee."""
+        invitation = await self.repo.get_active_by_id(invitation_id)
+        if invitation is None:
+            raise InvitationNotFoundError
+        if actor.email.strip().lower() != invitation.email.lower():
+            raise InvitationEmailMismatchError
+        await self.repo.mark_declined(invitation)
 
     def _link(self, token: str) -> str:
         return f"{self.web_url}/accept-invite?token={token}"

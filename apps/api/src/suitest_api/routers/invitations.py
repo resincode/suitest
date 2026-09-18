@@ -51,6 +51,30 @@ class InvitationValidateResponse(BaseModel):
     expires_at: datetime
 
 
+class InvitationLookupResponse(BaseModel):
+    """``GET .../invitations/lookup`` — exists/name only, never an id or any
+    other field, so the invite composer's autocomplete cannot be used to
+    enumerate accounts beyond "does this exact email have one"."""
+
+    exists: bool
+    name: str | None = None
+
+
+class MyInvitationOut(BaseModel):
+    """One pending invite addressed to the caller, for the Inbox surface."""
+
+    id: str
+    workspace_id: str
+    workspace_name: str
+    role: Role
+    invited_by: str | None = None
+    expires_at: datetime
+
+
+class MyInvitationListEnvelope(BaseModel):
+    items: list[MyInvitationOut]
+
+
 class AcceptInviteRequest(BaseModel):
     token: str = Field(min_length=1)
     # The invited address. Accepting only works when this matches the
@@ -140,6 +164,28 @@ async def list_invitations(
             for row in rows
         ]
     )
+
+
+@router.get(
+    "/workspaces/{workspace_id}/invitations/lookup",
+    response_model=InvitationLookupResponse,
+)
+async def lookup_invitee(
+    workspace_id: str,
+    email: str = Query(min_length=3),
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> InvitationLookupResponse:
+    """Does ``email`` already have a registered account? Backs the invite
+    composer's autocomplete confirmation chip. Gated identically to invite
+    creation (ADMIN/OWNER of this workspace) — see ``lookup_user`` docstring."""
+    try:
+        name = await _service(session).lookup_user(
+            workspace_id=workspace_id, email=email, actor=user
+        )
+    except InvitationForbiddenError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden") from exc
+    return InvitationLookupResponse(exists=name is not None, name=name)
 
 
 @router.get(
@@ -255,3 +301,77 @@ async def accept_invitation(
         if key.lower() == b"set-cookie":
             response.raw_headers.append((key, value))
     return response
+
+
+@router.get(
+    "/invitations/mine",
+    response_model=MyInvitationListEnvelope,
+)
+async def list_my_invitations(
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> MyInvitationListEnvelope:
+    """Pending invites addressed to the caller's email, across workspaces.
+
+    Feeds the Inbox ``WORKSPACE_INVITE`` cards (M1e-9) so an already-verified
+    user can approve/decline in-app instead of hunting for the invite email.
+    """
+    rows = await _service(session).list_my_invitations(actor=user)
+    return MyInvitationListEnvelope(
+        items=[
+            MyInvitationOut(
+                id=row.id,
+                workspace_id=row.workspace_id,
+                workspace_name=row.workspace.name,
+                role=row.role,
+                invited_by=row.creator.name if row.creator else None,
+                expires_at=row.expires_at,
+            )
+            for row in rows
+        ]
+    )
+
+
+@router.post("/invitations/{invitation_id}/approve", status_code=status.HTTP_204_NO_CONTENT)
+async def approve_invitation(
+    invitation_id: str,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    """In-app approve: the caller is already authenticated as the invitee, so
+    this skips the token/password/"set your name" detour ``/auth/accept-invite``
+    needs for an anonymous link click."""
+    try:
+        await _service(session).approve(invitation_id=invitation_id, actor=user)
+    except InvitationNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="invite not found"
+        ) from exc
+    except InvitationEmailMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This invitation was issued to a different email address.",
+        ) from exc
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/invitations/{invitation_id}/decline", status_code=status.HTTP_204_NO_CONTENT)
+async def decline_invitation(
+    invitation_id: str,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    try:
+        await _service(session).decline(invitation_id=invitation_id, actor=user)
+    except InvitationNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="invite not found"
+        ) from exc
+    except InvitationEmailMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This invitation was issued to a different email address.",
+        ) from exc
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

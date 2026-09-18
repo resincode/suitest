@@ -836,7 +836,10 @@ export interface paths {
         };
         /**
          * List Inbox
-         * @description List inbox items for the active workspace (empty stub in M1a).
+         * @description List inbox items for the caller.
+         *
+         *     The six pre-existing kinds stay empty (no aggregator yet); pending
+         *     workspace invites (``WORKSPACE_INVITE``) are real.
          */
         get: operations["list_inbox_api_v1_inbox_get"];
         put?: never;
@@ -999,6 +1002,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/invitations/mine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List My Invitations
+         * @description Pending invites addressed to the caller's email, across workspaces.
+         *
+         *     Feeds the Inbox ``WORKSPACE_INVITE`` cards (M1e-9) so an already-verified
+         *     user can approve/decline in-app instead of hunting for the invite email.
+         */
+        get: operations["list_my_invitations_api_v1_invitations_mine_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/invitations/validate": {
         parameters: {
             query?: never;
@@ -1010,6 +1036,45 @@ export interface paths {
         get: operations["validate_invitation_api_v1_invitations_validate_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invitations/{invitation_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Invitation
+         * @description In-app approve: the caller is already authenticated as the invitee, so
+         *     this skips the token/password/"set your name" detour ``/auth/accept-invite``
+         *     needs for an anonymous link click.
+         */
+        post: operations["approve_invitation_api_v1_invitations__invitation_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invitations/{invitation_id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline Invitation */
+        post: operations["decline_invitation_api_v1_invitations__invitation_id__decline_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3254,6 +3319,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/invitations/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lookup Invitee
+         * @description Does ``email`` already have a registered account? Backs the invite
+         *     composer's autocomplete confirmation chip. Gated identically to invite
+         *     creation (ADMIN/OWNER of this workspace) — see ``lookup_user`` docstring.
+         */
+        get: operations["lookup_invitee_api_v1_workspaces__workspace_id__invitations_lookup_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/members": {
         parameters: {
             query?: never;
@@ -5088,7 +5175,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "DEPLOY_GATE_FAIL" | "MANUAL_RUN_FAIL" | "MCP_HEALTH" | "FLAKY_PROMOTION" | "AGENT_GENERATION" | "AGENT_DIAGNOSIS";
+            kind: "DEPLOY_GATE_FAIL" | "MANUAL_RUN_FAIL" | "MCP_HEALTH" | "FLAKY_PROMOTION" | "AGENT_GENERATION" | "AGENT_DIAGNOSIS" | "WORKSPACE_INVITE";
             /**
              * Status
              * @default unread
@@ -5443,6 +5530,18 @@ export interface components {
         InvitationListEnvelope: {
             /** Items */
             items: components["schemas"]["InvitationOut"][];
+        };
+        /**
+         * InvitationLookupResponse
+         * @description ``GET .../invitations/lookup`` — exists/name only, never an id or any
+         *     other field, so the invite composer's autocomplete cannot be used to
+         *     enumerate accounts beyond "does this exact email have one".
+         */
+        InvitationLookupResponse: {
+            /** Exists */
+            exists: boolean;
+            /** Name */
+            name?: string | null;
         };
         /** InvitationOut */
         InvitationOut: {
@@ -6032,6 +6131,31 @@ export interface components {
             workspace: components["schemas"]["WorkspacePublic"];
             /** Workspace Id */
             workspace_id: string;
+        };
+        /** MyInvitationListEnvelope */
+        MyInvitationListEnvelope: {
+            /** Items */
+            items: components["schemas"]["MyInvitationOut"][];
+        };
+        /**
+         * MyInvitationOut
+         * @description One pending invite addressed to the caller, for the Inbox surface.
+         */
+        MyInvitationOut: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Id */
+            id: string;
+            /** Invited By */
+            invited_by?: string | null;
+            role: components["schemas"]["Role"];
+            /** Workspace Id */
+            workspace_id: string;
+            /** Workspace Name */
+            workspace_name: string;
         };
         /**
          * NetworkEvent
@@ -9920,9 +10044,7 @@ export interface operations {
             query?: {
                 status?: string;
             };
-            header?: {
-                "X-Workspace-Id"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -10289,6 +10411,26 @@ export interface operations {
             };
         };
     };
+    list_my_invitations_api_v1_invitations_mine_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyInvitationListEnvelope"];
+                };
+            };
+        };
+    };
     validate_invitation_api_v1_invitations_validate_get: {
         parameters: {
             query: {
@@ -10308,6 +10450,64 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["InvitationValidateResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_invitation_api_v1_invitations__invitation_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decline_invitation_api_v1_invitations__invitation_id__decline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -14718,6 +14918,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvitationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lookup_invitee_api_v1_workspaces__workspace_id__invitations_lookup_get: {
+        parameters: {
+            query: {
+                email: string;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationLookupResponse"];
                 };
             };
             /** @description Validation Error */

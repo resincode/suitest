@@ -964,6 +964,9 @@ export type WorkspaceMemberPublic = components["schemas"]["WorkspaceMemberPublic
 type ResetPasswordResponse = components["schemas"]["ResetPasswordResponse"];
 export type PasswordResetRequestOut = components["schemas"]["PasswordResetRequestOut"];
 type PasswordResetRequestsEnvelope = components["schemas"]["PasswordResetRequestsEnvelope"];
+export type InvitationLookupResponse = components["schemas"]["InvitationLookupResponse"];
+export type MyInvitationOut = components["schemas"]["MyInvitationOut"];
+type MyInvitationListEnvelope = components["schemas"]["MyInvitationListEnvelope"];
 
 /**
  * Derived lifecycle status for an invite. `InvitationOut` carries timestamps,
@@ -1002,6 +1005,38 @@ export async function listInvitations(workspaceId: string): Promise<InvitationOu
 /** ``POST /invitations/:id/revoke`` — revoke a pending invite (204). */
 export async function revokeInvitation(invitationId: string): Promise<void> {
   await api.post(`/invitations/${invitationId}/revoke`);
+}
+
+/**
+ * ``GET /workspaces/:id/invitations/lookup`` — does this email already have a
+ * registered account? Backs the invite composer's autocomplete confirmation
+ * chip (M1e-9). Exact-match only; never returns anything beyond name/exists.
+ */
+export async function lookupInviteEmail(
+  workspaceId: string,
+  email: string,
+): Promise<InvitationLookupResponse> {
+  const res = await api.get<InvitationLookupResponse>(
+    `/workspaces/${workspaceId}/invitations/lookup`,
+    { params: { email } },
+  );
+  return res.data;
+}
+
+/** ``GET /invitations/mine`` — pending invites addressed to the caller, across workspaces. */
+export async function listMyInvitations(): Promise<MyInvitationOut[]> {
+  const res = await api.get<MyInvitationListEnvelope>("/invitations/mine");
+  return res.data.items;
+}
+
+/** ``POST /invitations/:id/approve`` — in-app accept, no token/password step. */
+export async function approveInvitation(invitationId: string): Promise<void> {
+  await api.post(`/invitations/${invitationId}/approve`);
+}
+
+/** ``POST /invitations/:id/decline`` — in-app decline. */
+export async function declineInvitation(invitationId: string): Promise<void> {
+  await api.post(`/invitations/${invitationId}/decline`);
 }
 
 // ---------------------------------------------------------------------------

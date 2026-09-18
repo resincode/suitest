@@ -3599,10 +3599,22 @@
               "MCP_HEALTH",
               "FLAKY_PROMOTION",
               "AGENT_GENERATION",
-              "AGENT_DIAGNOSIS"
+              "AGENT_DIAGNOSIS",
+              "WORKSPACE_INVITE"
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
           },
           "status": {
             "default": "unread",
@@ -4401,6 +4413,31 @@
           "items"
         ],
         "title": "InvitationListEnvelope",
+        "type": "object"
+      },
+      "InvitationLookupResponse": {
+        "description": "``GET .../invitations/lookup`` \u2014 exists/name only, never an id or any\nother field, so the invite composer's autocomplete cannot be used to\nenumerate accounts beyond \"does this exact email have one\".",
+        "properties": {
+          "exists": {
+            "title": "Exists",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "exists"
+        ],
+        "title": "InvitationLookupResponse",
         "type": "object"
       },
       "InvitationOut": {
@@ -5774,6 +5811,67 @@
           "workspace"
         ],
         "title": "MembershipPublic",
+        "type": "object"
+      },
+      "MyInvitationListEnvelope": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MyInvitationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "MyInvitationListEnvelope",
+        "type": "object"
+      },
+      "MyInvitationOut": {
+        "description": "One pending invite addressed to the caller, for the Inbox surface.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "invited_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invited By"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "workspace_name": {
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "workspace_name",
+          "role",
+          "expires_at"
+        ],
+        "title": "MyInvitationOut",
         "type": "object"
       },
       "NetworkEvent": {
@@ -14600,7 +14698,7 @@
     },
     "/api/v1/inbox": {
       "get": {
-        "description": "List inbox items for the active workspace (empty stub in M1a).",
+        "description": "List inbox items for the caller.\n\nThe six pre-existing kinds stay empty (no aggregator yet); pending\nworkspace invites (``WORKSPACE_INVITE``) are real.",
         "operationId": "list_inbox_api_v1_inbox_get",
         "parameters": [
           {
@@ -14611,22 +14709,6 @@
               "default": "all",
               "title": "Status",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Workspace-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Workspace-Id"
             }
           }
         ],
@@ -15364,6 +15446,36 @@
         ]
       }
     },
+    "/api/v1/invitations/mine": {
+      "get": {
+        "description": "Pending invites addressed to the caller's email, across workspaces.\n\nFeeds the Inbox ``WORKSPACE_INVITE`` cards (M1e-9) so an already-verified\nuser can approve/decline in-app instead of hunting for the invite email.",
+        "operationId": "list_my_invitations_api_v1_invitations_mine_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyInvitationListEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List My Invitations",
+        "tags": [
+          "invitations"
+        ]
+      }
+    },
     "/api/v1/invitations/validate": {
       "get": {
         "operationId": "validate_invitation_api_v1_invitations_validate_get",
@@ -15402,6 +15514,93 @@
           }
         },
         "summary": "Validate Invitation",
+        "tags": [
+          "invitations"
+        ]
+      }
+    },
+    "/api/v1/invitations/{invitation_id}/approve": {
+      "post": {
+        "description": "In-app approve: the caller is already authenticated as the invitee, so\nthis skips the token/password/\"set your name\" detour ``/auth/accept-invite``\nneeds for an anonymous link click.",
+        "operationId": "approve_invitation_api_v1_invitations__invitation_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invitation_id",
+            "required": true,
+            "schema": {
+              "title": "Invitation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Approve Invitation",
+        "tags": [
+          "invitations"
+        ]
+      }
+    },
+    "/api/v1/invitations/{invitation_id}/decline": {
+      "post": {
+        "operationId": "decline_invitation_api_v1_invitations__invitation_id__decline_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invitation_id",
+            "required": true,
+            "schema": {
+              "title": "Invitation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Decline Invitation",
         "tags": [
           "invitations"
         ]
@@ -24340,6 +24539,67 @@
           }
         ],
         "summary": "Create Invitation",
+        "tags": [
+          "invitations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/invitations/lookup": {
+      "get": {
+        "description": "Does ``email`` already have a registered account? Backs the invite\ncomposer's autocomplete confirmation chip. Gated identically to invite\ncreation (ADMIN/OWNER of this workspace) \u2014 see ``lookup_user`` docstring.",
+        "operationId": "lookup_invitee_api_v1_workspaces__workspace_id__invitations_lookup_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "minLength": 3,
+              "title": "Email",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationLookupResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Lookup Invitee",
         "tags": [
           "invitations"
         ]

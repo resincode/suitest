@@ -35,6 +35,11 @@ class Invitation(Base, TimestampMixin):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set when the invited existing-account holder declines via in-app
+    # approve/decline (M1e-9) rather than an admin revoking it. Distinct from
+    # ``revoked_at`` so the UI/audit trail can tell "admin pulled it back"
+    # apart from "the invitee said no".
+    declined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )

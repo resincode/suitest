@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 from suitest_db.models.invitation import Invitation
 
@@ -73,6 +73,53 @@ class InvitationRepository:
             .options(selectinload(Invitation.workspace))
         )
         return row
+
+    async def get_active_by_id(self, invitation_id: str) -> Invitation | None:
+        """Load ``invitation_id`` only while it is still actionable.
+
+        Mirrors :meth:`get_active_by_token_hash`'s activity window so
+        approve/decline see the same "not found" outcome a stale/expired
+        token would — no separate state machine to keep in sync.
+        """
+        now = datetime.now(tz=UTC)
+        row: Invitation | None = await self.session.scalar(
+            select(Invitation)
+            .where(
+                Invitation.id == invitation_id,
+                Invitation.accepted_at.is_(None),
+                Invitation.revoked_at.is_(None),
+                Invitation.declined_at.is_(None),
+                Invitation.expires_at > now,
+            )
+            .options(selectinload(Invitation.workspace), selectinload(Invitation.creator))
+        )
+        return row
+
+    async def list_for_email(self, email: str) -> list[Invitation]:
+        """Pending invites addressed to ``email``, across every workspace.
+
+        Used by the in-app "pending invites" surface (Inbox, M1e-9): the
+        recipient is not yet a member of the target workspace, so this is
+        deliberately not workspace-scoped.
+        """
+        now = datetime.now(tz=UTC)
+        rows = await self.session.scalars(
+            select(Invitation)
+            .where(
+                func.lower(Invitation.email) == email.lower(),
+                Invitation.accepted_at.is_(None),
+                Invitation.revoked_at.is_(None),
+                Invitation.declined_at.is_(None),
+                Invitation.expires_at > now,
+            )
+            .options(selectinload(Invitation.workspace), selectinload(Invitation.creator))
+            .order_by(Invitation.created_at.desc())
+        )
+        return list(rows.all())
+
+    async def mark_declined(self, invitation: Invitation) -> None:
+        invitation.declined_at = datetime.now(tz=UTC)
+        await self.session.flush()
 
     async def revoke(self, invitation: Invitation) -> None:
         invitation.revoked_at = datetime.now(tz=UTC)

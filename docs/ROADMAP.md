@@ -139,6 +139,7 @@ ZERO-tier deploy = a competent TestRail+Playwright replacement. Maya can author 
 - [x] **M1e-6** Super-admin password reset returns one-time temporary password and stores only password hash.
 - [x] **M1e-7** Interim forgot-password flow stores encrypted reset links for super-admin review until SMTP exists.
 - [x] **M1e-8** Docs/OpenAPI updated and ZERO-mode login/invite tests pass.
+- [x] **M1e-9** In-app invite approval for existing users: invite-composer email autocomplete confirms an existing account (exact-match lookup, no directory search); the invitee sees pending invites addressed to them in the Inbox (`WORKSPACE_INVITE`, the first non-stub kind) and approves/declines without the token/password/"set your name" detour. The email-link flow is unchanged for not-yet-registered invitees.
 
 ### Definition of done
 

@@ -219,3 +219,150 @@ async def test_accept_invite_existing_active_account_requires_login(api_db: ApiD
         )
         assert membership is not None
         assert membership.role == Role.QA
+
+
+@pytest.mark.asyncio
+async def test_lookup_invitee_reports_existing_and_unknown_email(api_db: ApiDb) -> None:
+    admin = await api_db.seed_user(email="admin@example.com", name="Admin")
+    await api_db.seed_user(email="alice@example.com", name="Alice")
+    ws = await api_db.seed_workspace(slug="acme", name="Acme")
+    await api_db.seed_membership(workspace_id=ws.id, user_id=admin.id, role=Role.ADMIN)
+
+    client = await _client_for(api_db, admin)
+    async with client:
+        known = await client.get(f"/api/v1/workspaces/{ws.id}/invitations/lookup?email=alice@example.com")
+        assert known.status_code == 200
+        assert known.json() == {"exists": True, "name": "Alice"}
+
+        unknown = await client.get(
+            f"/api/v1/workspaces/{ws.id}/invitations/lookup?email=nobody@example.com"
+        )
+        assert unknown.status_code == 200
+        assert unknown.json() == {"exists": False, "name": None}
+
+
+@pytest.mark.asyncio
+async def test_lookup_invitee_forbidden_for_non_manager(api_db: ApiDb) -> None:
+    viewer = await api_db.seed_user(email="viewer@example.com", name="Viewer")
+    ws = await api_db.seed_workspace(slug="acme", name="Acme")
+    await api_db.seed_membership(workspace_id=ws.id, user_id=viewer.id, role=Role.VIEWER)
+
+    client = await _client_for(api_db, viewer)
+    async with client:
+        response = await client.get(
+            f"/api/v1/workspaces/{ws.id}/invitations/lookup?email=anyone@example.com"
+        )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_approve_invitation_grants_membership_without_password(api_db: ApiDb) -> None:
+    """The in-app path for an already-registered invitee: no token, no
+    password, no "set your name" detour — just an authenticated approve."""
+    admin = await api_db.seed_user(email="admin@example.com", name="Admin")
+    alice = await api_db.seed_user(email="alice@example.com", name="Alice")
+    ws = await api_db.seed_workspace(slug="acme", name="Acme")
+    await api_db.seed_membership(workspace_id=ws.id, user_id=admin.id, role=Role.ADMIN)
+
+    admin_client = await _client_for(api_db, admin)
+    async with admin_client:
+        created = await admin_client.post(
+            f"/api/v1/workspaces/{ws.id}/invitations",
+            json={"email": "alice@example.com", "role": "QA"},
+        )
+        invitation_id = created.json()["id"]
+
+    alice_client = await _client_for(api_db, alice)
+    async with alice_client:
+        mine = await alice_client.get("/api/v1/invitations/mine")
+        assert mine.status_code == 200
+        items = mine.json()["items"]
+        assert len(items) == 1
+        assert items[0]["id"] == invitation_id
+        assert items[0]["workspace_name"] == "Acme"
+        assert items[0]["role"] == "QA"
+        assert items[0]["invited_by"] == "Admin"
+
+        approved = await alice_client.post(f"/api/v1/invitations/{invitation_id}/approve")
+        assert approved.status_code == 204
+
+        # Resolved invites drop out of "mine".
+        mine_after = await alice_client.get("/api/v1/invitations/mine")
+        assert mine_after.json()["items"] == []
+
+    async with api_db.maker() as session:
+        membership = await session.scalar(
+            select(Membership).where(
+                Membership.workspace_id == ws.id, Membership.user_id == alice.id
+            )
+        )
+        assert membership is not None
+        assert membership.role == Role.QA
+
+
+@pytest.mark.asyncio
+async def test_approve_invitation_rejects_mismatched_email(api_db: ApiDb) -> None:
+    """The M1e email-binding invariant also protects the in-app approve path:
+    only the invited address may claim the invite, never whoever is logged in."""
+    admin = await api_db.seed_user(email="admin@example.com", name="Admin")
+    await api_db.seed_user(email="alice@example.com", name="Alice")
+    bob = await api_db.seed_user(email="bob@example.com", name="Bob")
+    ws = await api_db.seed_workspace(slug="acme", name="Acme")
+    await api_db.seed_membership(workspace_id=ws.id, user_id=admin.id, role=Role.ADMIN)
+
+    admin_client = await _client_for(api_db, admin)
+    async with admin_client:
+        created = await admin_client.post(
+            f"/api/v1/workspaces/{ws.id}/invitations",
+            json={"email": "alice@example.com", "role": "QA"},
+        )
+        invitation_id = created.json()["id"]
+
+    bob_client = await _client_for(api_db, bob)
+    async with bob_client:
+        response = await bob_client.post(f"/api/v1/invitations/{invitation_id}/approve")
+    assert response.status_code == 403
+
+    async with api_db.maker() as session:
+        membership = await session.scalar(
+            select(Membership).where(
+                Membership.workspace_id == ws.id, Membership.user_id == bob.id
+            )
+        )
+        assert membership is None
+
+
+@pytest.mark.asyncio
+async def test_decline_invitation_marks_declined_and_hides_from_mine(api_db: ApiDb) -> None:
+    admin = await api_db.seed_user(email="admin@example.com", name="Admin")
+    alice = await api_db.seed_user(email="alice@example.com", name="Alice")
+    ws = await api_db.seed_workspace(slug="acme", name="Acme")
+    await api_db.seed_membership(workspace_id=ws.id, user_id=admin.id, role=Role.ADMIN)
+
+    admin_client = await _client_for(api_db, admin)
+    async with admin_client:
+        created = await admin_client.post(
+            f"/api/v1/workspaces/{ws.id}/invitations",
+            json={"email": "alice@example.com", "role": "VIEWER"},
+        )
+        invitation_id = created.json()["id"]
+
+    alice_client = await _client_for(api_db, alice)
+    async with alice_client:
+        declined = await alice_client.post(f"/api/v1/invitations/{invitation_id}/decline")
+        assert declined.status_code == 204
+
+        mine_after = await alice_client.get("/api/v1/invitations/mine")
+        assert mine_after.json()["items"] == []
+
+        # Declining twice is a 404, not a silent no-op: the state is terminal.
+        again = await alice_client.post(f"/api/v1/invitations/{invitation_id}/decline")
+        assert again.status_code == 404
+
+    async with api_db.maker() as session:
+        membership = await session.scalar(
+            select(Membership).where(
+                Membership.workspace_id == ws.id, Membership.user_id == alice.id
+            )
+        )
+        assert membership is None

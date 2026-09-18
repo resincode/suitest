@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { CopyButton } from "@/components/shared/CopyButton";
 import {
@@ -18,10 +18,15 @@ import {
   invitationStatus,
   listInvitations,
   listMembers,
+  lookupInviteEmail,
   resendInvitation,
   revokeInvitation,
   type Role,
 } from "@/lib/api-client";
+
+/** Debounce delay before an in-flight email is checked against existing
+ * accounts (M1e-9 autocomplete chip) — long enough to skip mid-typing. */
+const EMAIL_LOOKUP_DEBOUNCE_MS = 400;
 
 /** Invite creation is limited to ADMIN/QA/VIEWER — OWNER stays a separate action. */
 const INVITE_ROLES: Role[] = ["ADMIN", "QA", "VIEWER"];
@@ -248,8 +253,21 @@ function InviteModal({
   onCreated,
 }: InviteModalProps): React.ReactElement {
   const [email, setEmail] = useState("");
+  const [debouncedEmail, setDebouncedEmail] = useState("");
   const [role, setRole] = useState<Role>("QA");
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedEmail(email.trim().toLowerCase()), EMAIL_LOOKUP_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [email]);
+
+  const isPlausibleEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(debouncedEmail);
+  const lookup = useQuery({
+    queryKey: ["invite-lookup", workspaceId, debouncedEmail] as const,
+    queryFn: () => lookupInviteEmail(workspaceId, debouncedEmail),
+    enabled: isPlausibleEmail,
+  });
 
   const createMutation = useMutation({
     mutationFn: () => createInvitation(workspaceId, { email, role }),
@@ -299,6 +317,15 @@ function InviteModal({
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-md border border-border bg-bg-base px-3 py-2 text-[13px] text-fg-1 outline-none focus:border-accent"
             />
+            {isPlausibleEmail && lookup.data?.exists ? (
+              <p
+                data-testid="invite-lookup-match"
+                className="rounded-md border border-accent/20 bg-accent/10 px-2.5 py-1.5 text-[12px] text-accent"
+              >
+                {lookup.data.name} is already registered — they will see this in their Inbox to
+                approve.
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-2">

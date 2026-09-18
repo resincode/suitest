@@ -4,7 +4,8 @@ import {
   createMemoryHistory,
   createRouter,
 } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -30,52 +31,58 @@ function renderInbox() {
 }
 
 const FIXTURE = {
-  unread: 2,
+  unreadCount: 2,
   items: [
     {
       id: "nf_01",
-      kind: "GATING_FAIL",
+      kind: "DEPLOY_GATE_FAIL",
       title: "Gating suite failed on main",
       body: "Smoke @ main reported 2 failing steps.",
       ref: "RUN-1002",
       createdAt: "2026-05-27T11:13:40Z",
-      read: false,
+      status: "unread",
     },
     {
       id: "nf_02",
-      kind: "AGENT_DEFECT_FILED",
+      kind: "AGENT_DIAGNOSIS",
       title: "Agent filed a defect",
       body: "DEF-201 auto-filed.",
       ref: "DEF-201",
       createdAt: "2026-05-26T09:00:00Z",
-      read: true,
+      status: "read",
+    },
+  ],
+};
+
+const INVITE_FIXTURE = {
+  unreadCount: 1,
+  items: [
+    {
+      id: "inv_01",
+      kind: "WORKSPACE_INVITE",
+      title: "Admin invited you to Acme",
+      body: "Join as QA — approve or decline below.",
+      createdAt: "2026-05-27T11:13:40Z",
+      status: "unread",
     },
   ],
 };
 
 describe("Inbox screen", () => {
   beforeEach(() => {
-    setCaps(ZERO_CAPS);
-    server.use(
-      http.get("*/api/v1/auth/me", () =>
-        HttpResponse.json({ id: "u_demo", email: "demo@suitest.dev", name: "Maya", memberships: [] }),
-      ),
-    );
-    vi.stubGlobal("location", {
-      pathname: "/inbox",
-      assign: vi.fn(),
-      origin: "http://localhost",
-    });
-  });
-  afterEach(() => {
     resetCaps();
-    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("renders the skeleton before /inbox resolves", async () => {
     server.use(
       http.get("*/api/v1/inbox", async () => {
-        await new Promise((r) => setTimeout(r, 50));
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, 50);
+        await promise;
         return HttpResponse.json(FIXTURE);
       }),
     );
@@ -88,8 +95,8 @@ describe("Inbox screen", () => {
     renderInbox();
     const list = await screen.findByTestId("inbox-list", undefined, { timeout: 3000 });
     expect(list.querySelectorAll('[data-testid="inbox-card"]').length).toBe(1);
-    expect(list.querySelector('[data-kind="GATING_FAIL"]')).not.toBeNull();
-    expect(list.querySelector('[data-kind="AGENT_DEFECT_FILED"]')).toBeNull();
+    expect(list.querySelector('[data-kind="DEPLOY_GATE_FAIL"]')).not.toBeNull();
+    expect(list.querySelector('[data-kind="AGENT_DIAGNOSIS"]')).toBeNull();
   });
 
   it("CLOUD tier: renders both deterministic and agent cards", async () => {
@@ -104,12 +111,12 @@ describe("Inbox screen", () => {
     renderInbox();
     const list = await screen.findByTestId("inbox-list", undefined, { timeout: 3000 });
     expect(list.querySelectorAll('[data-testid="inbox-card"]').length).toBe(2);
-    expect(list.querySelector('[data-kind="AGENT_DEFECT_FILED"]')).not.toBeNull();
+    expect(list.querySelector('[data-kind="AGENT_DIAGNOSIS"]')).not.toBeNull();
   });
 
   it("renders the empty state when there are no items", async () => {
     server.use(
-      http.get("*/api/v1/inbox", () => HttpResponse.json({ unread: 0, items: [] })),
+      http.get("*/api/v1/inbox", () => HttpResponse.json({ unreadCount: 0, items: [] })),
     );
     renderInbox();
     expect(
@@ -135,5 +142,46 @@ describe("Inbox screen", () => {
     expect(
       await screen.findByTestId("inbox-unread", undefined, { timeout: 3000 }),
     ).toHaveTextContent("2 unread");
+  });
+
+  it("renders a WORKSPACE_INVITE card and approves it (M1e-9)", async () => {
+    let approved = false;
+    server.use(
+      http.get("*/api/v1/inbox", () =>
+        HttpResponse.json(approved ? { unreadCount: 0, items: [] } : INVITE_FIXTURE),
+      ),
+      http.post("*/api/v1/invitations/inv_01/approve", () => {
+        approved = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderInbox();
+    const card = await screen.findByTestId("inbox-card", undefined, { timeout: 3000 });
+    expect(card).toHaveTextContent("Admin invited you to Acme");
+
+    await userEvent.click(screen.getByTestId("inbox-invite-approve"));
+
+    await waitFor(() => expect(screen.queryByTestId("inbox-card")).not.toBeInTheDocument());
+    expect(await screen.findByText(/Inbox is empty/i)).toBeInTheDocument();
+  });
+
+  it("declines a WORKSPACE_INVITE card", async () => {
+    let declined = false;
+    server.use(
+      http.get("*/api/v1/inbox", () =>
+        HttpResponse.json(declined ? { unreadCount: 0, items: [] } : INVITE_FIXTURE),
+      ),
+      http.post("*/api/v1/invitations/inv_01/decline", () => {
+        declined = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderInbox();
+    await screen.findByTestId("inbox-card", undefined, { timeout: 3000 });
+
+    await userEvent.click(screen.getByTestId("inbox-invite-decline"));
+
+    await waitFor(() => expect(screen.queryByTestId("inbox-card")).not.toBeInTheDocument());
+    expect(await screen.findByText(/Inbox is empty/i)).toBeInTheDocument();
   });
 });
