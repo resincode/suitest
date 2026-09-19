@@ -40,6 +40,7 @@ const STATUS_STYLE: Record<InvitationStatus, string> = {
   pending: "text-amber",
   accepted: "text-accent",
   revoked: "text-fg-4",
+  declined: "text-fg-4",
   expired: "text-red",
 };
 

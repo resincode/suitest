@@ -28,6 +28,7 @@ function inviteRow(over: Partial<InvitationOut> = {}): InvitationOut {
     expires_at: FUTURE,
     accepted_at: null,
     revoked_at: null,
+    declined_at: null,
     link: null,
     ...over,
   };
@@ -37,6 +38,7 @@ describe("api-client M1e helpers", () => {
   it("invitationStatus derives lifecycle from timestamps", () => {
     expect(invitationStatus(inviteRow())).toBe("pending");
     expect(invitationStatus(inviteRow({ revoked_at: FUTURE }))).toBe("revoked");
+    expect(invitationStatus(inviteRow({ declined_at: FUTURE }))).toBe("declined");
     expect(invitationStatus(inviteRow({ accepted_at: FUTURE }))).toBe("accepted");
     expect(invitationStatus(inviteRow({ expires_at: PAST }))).toBe("expired");
   });

@@ -965,17 +965,16 @@ type ResetPasswordResponse = components["schemas"]["ResetPasswordResponse"];
 export type PasswordResetRequestOut = components["schemas"]["PasswordResetRequestOut"];
 type PasswordResetRequestsEnvelope = components["schemas"]["PasswordResetRequestsEnvelope"];
 export type InvitationLookupResponse = components["schemas"]["InvitationLookupResponse"];
-export type MyInvitationOut = components["schemas"]["MyInvitationOut"];
-type MyInvitationListEnvelope = components["schemas"]["MyInvitationListEnvelope"];
 
 /**
  * Derived lifecycle status for an invite. `InvitationOut` carries timestamps,
  * not a status field, so callers compute the badge from them.
  */
-export type InvitationStatus = "pending" | "accepted" | "revoked" | "expired";
+export type InvitationStatus = "pending" | "accepted" | "revoked" | "declined" | "expired";
 
 export function invitationStatus(inv: InvitationOut): InvitationStatus {
   if (inv.revoked_at) return "revoked";
+  if (inv.declined_at) return "declined";
   if (inv.accepted_at) return "accepted";
   const exp = parseUtcDate(inv.expires_at);
   if (exp && exp.getTime() <= Date.now()) return "expired";
@@ -1021,12 +1020,6 @@ export async function lookupInviteEmail(
     { params: { email } },
   );
   return res.data;
-}
-
-/** ``GET /invitations/mine`` — pending invites addressed to the caller, across workspaces. */
-export async function listMyInvitations(): Promise<MyInvitationOut[]> {
-  const res = await api.get<MyInvitationListEnvelope>("/invitations/mine");
-  return res.data.items;
 }
 
 /** ``POST /invitations/:id/approve`` — in-app accept, no token/password step. */

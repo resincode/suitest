@@ -68,6 +68,9 @@ class InvitationRepository:
                 Invitation.token_hash == token_hash,
                 Invitation.accepted_at.is_(None),
                 Invitation.revoked_at.is_(None),
+                # An invitee who declined in-app must not still be claimable
+                # through a stale copy of the original email link.
+                Invitation.declined_at.is_(None),
                 Invitation.expires_at > now,
             )
             .options(selectinload(Invitation.workspace))

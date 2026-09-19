@@ -1002,29 +1002,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/invitations/mine": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List My Invitations
-         * @description Pending invites addressed to the caller's email, across workspaces.
-         *
-         *     Feeds the Inbox ``WORKSPACE_INVITE`` cards (M1e-9) so an already-verified
-         *     user can approve/decline in-app instead of hunting for the invite email.
-         */
-        get: operations["list_my_invitations_api_v1_invitations_mine_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/invitations/validate": {
         parameters: {
             query?: never;
@@ -5549,6 +5526,8 @@ export interface components {
         InvitationOut: {
             /** Accepted At */
             accepted_at: string | null;
+            /** Declined At */
+            declined_at: string | null;
             /** Email */
             email: string;
             /**
@@ -6133,31 +6112,6 @@ export interface components {
             workspace: components["schemas"]["WorkspacePublic"];
             /** Workspace Id */
             workspace_id: string;
-        };
-        /** MyInvitationListEnvelope */
-        MyInvitationListEnvelope: {
-            /** Items */
-            items: components["schemas"]["MyInvitationOut"][];
-        };
-        /**
-         * MyInvitationOut
-         * @description One pending invite addressed to the caller, for the Inbox surface.
-         */
-        MyInvitationOut: {
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
-            /** Id */
-            id: string;
-            /** Invited By */
-            invited_by?: string | null;
-            role: components["schemas"]["Role"];
-            /** Workspace Id */
-            workspace_id: string;
-            /** Workspace Name */
-            workspace_name: string;
         };
         /**
          * NetworkEvent
@@ -10409,26 +10363,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_my_invitations_api_v1_invitations_mine_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MyInvitationListEnvelope"];
                 };
             };
         };

@@ -4454,6 +4454,18 @@
             ],
             "title": "Accepted At"
           },
+          "declined_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declined At"
+          },
           "email": {
             "title": "Email",
             "type": "string"
@@ -4500,7 +4512,8 @@
           "role",
           "expires_at",
           "accepted_at",
-          "revoked_at"
+          "revoked_at",
+          "declined_at"
         ],
         "title": "InvitationOut",
         "type": "object"
@@ -5811,67 +5824,6 @@
           "workspace"
         ],
         "title": "MembershipPublic",
-        "type": "object"
-      },
-      "MyInvitationListEnvelope": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/MyInvitationOut"
-            },
-            "title": "Items",
-            "type": "array"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "MyInvitationListEnvelope",
-        "type": "object"
-      },
-      "MyInvitationOut": {
-        "description": "One pending invite addressed to the caller, for the Inbox surface.",
-        "properties": {
-          "expires_at": {
-            "format": "date-time",
-            "title": "Expires At",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "invited_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Invited By"
-          },
-          "role": {
-            "$ref": "#/components/schemas/Role"
-          },
-          "workspace_id": {
-            "title": "Workspace Id",
-            "type": "string"
-          },
-          "workspace_name": {
-            "title": "Workspace Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "workspace_id",
-          "workspace_name",
-          "role",
-          "expires_at"
-        ],
-        "title": "MyInvitationOut",
         "type": "object"
       },
       "NetworkEvent": {
@@ -15443,36 +15395,6 @@
         "summary": "Test Integration",
         "tags": [
           "integrations"
-        ]
-      }
-    },
-    "/api/v1/invitations/mine": {
-      "get": {
-        "description": "Pending invites addressed to the caller's email, across workspaces.\n\nFeeds the Inbox ``WORKSPACE_INVITE`` cards (M1e-9) so an already-verified\nuser can approve/decline in-app instead of hunting for the invite email.",
-        "operationId": "list_my_invitations_api_v1_invitations_mine_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MyInvitationListEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "APIKeyCookie": []
-          },
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "summary": "List My Invitations",
-        "tags": [
-          "invitations"
         ]
       }
     },

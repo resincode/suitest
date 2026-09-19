@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from fastapi_users.password import PasswordHelper
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from suitest_db.audit import write_audit
 from suitest_db.models.invitation import Invitation
 from suitest_db.models.tenancy import Membership
 from suitest_db.models.user import User
@@ -95,9 +96,7 @@ class InvitationService:
         :func:`create_placeholder_user`. Never a real, sign-in-capable
         account — safe to ignore when deciding whether an email "already has
         an account" for invite UX (autocomplete, in-app approval)."""
-        return (
-            user.hashed_password.startswith("!") and not user.is_active and not user.is_verified
-        )
+        return user.hashed_password.startswith("!") and not user.is_active and not user.is_verified
 
     async def lookup_user(self, *, workspace_id: str, email: str, actor: User) -> str | None:
         """Return the display name of a real registered account for ``email``.
@@ -265,6 +264,15 @@ class InvitationService:
             )
             self.session.add(membership)
         await self.repo.mark_accepted(invitation)
+        await write_audit(
+            self.session,
+            workspace_id=invitation.workspace_id,
+            user_id=str(actor.id),
+            action="invitation.approve",
+            resource_type="invitation",
+            resource_id=invitation.id,
+            metadata={"role": invitation.role.value},
+        )
         await self.session.flush()
         return membership
 
@@ -276,6 +284,16 @@ class InvitationService:
         if actor.email.strip().lower() != invitation.email.lower():
             raise InvitationEmailMismatchError
         await self.repo.mark_declined(invitation)
+        await write_audit(
+            self.session,
+            workspace_id=invitation.workspace_id,
+            user_id=str(actor.id),
+            action="invitation.decline",
+            resource_type="invitation",
+            resource_id=invitation.id,
+            metadata={"role": invitation.role.value},
+        )
+        await self.session.flush()
 
     def _link(self, token: str) -> str:
         return f"{self.web_url}/accept-invite?token={token}"

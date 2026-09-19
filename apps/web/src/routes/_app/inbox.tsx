@@ -52,21 +52,27 @@ function kindMeta(kind: InboxItemKind): { icon: LucideIcon; tone: string; label:
  * six kinds have no aggregator yet, so their "Review"/"Dismiss" buttons stay
  * disabled placeholders below. */
 function InviteActions({ invitationId }: { invitationId: string }): React.ReactElement {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
-  const invalidate = (): Promise<void> =>
-    queryClient.invalidateQueries({ queryKey: ["inbox"] });
+  const invalidate = async (): Promise<void> => {
+    await queryClient.invalidateQueries({ queryKey: ["inbox"] });
+    // Approving/declining changes the caller's own membership set — refresh
+    // `/auth/me` too, so the workspace switcher picks up a newly joined
+    // workspace without a manual reload (mirrors `useCreateWorkspace`).
+    await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+  };
 
   const approve = useMutation({
     mutationFn: () => approveInvitation(invitationId),
     onSuccess: invalidate,
-    onError: () => setError("Could not approve. Try again."),
+    onError: () => setError(t("inbox.approveError")),
   });
   const decline = useMutation({
     mutationFn: () => declineInvitation(invitationId),
     onSuccess: invalidate,
-    onError: () => setError("Could not decline. Try again."),
+    onError: () => setError(t("inbox.declineError")),
   });
 
   const pending = approve.isPending || decline.isPending;
@@ -82,7 +88,7 @@ function InviteActions({ invitationId }: { invitationId: string }): React.ReactE
           onClick={() => approve.mutate()}
           data-testid="inbox-invite-approve"
         >
-          Approve
+          {t("inbox.approve")}
         </Button>
         <Button
           type="button"
@@ -92,7 +98,7 @@ function InviteActions({ invitationId }: { invitationId: string }): React.ReactE
           onClick={() => decline.mutate()}
           data-testid="inbox-invite-decline"
         >
-          Decline
+          {t("inbox.decline")}
         </Button>
       </div>
       {error ? <p className="text-[11px] text-red">{error}</p> : null}

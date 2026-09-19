@@ -37,6 +37,7 @@ class InvitationOut(BaseModel):
     expires_at: datetime
     accepted_at: datetime | None
     revoked_at: datetime | None
+    declined_at: datetime | None
     link: str | None = None
 
 
@@ -58,21 +59,6 @@ class InvitationLookupResponse(BaseModel):
 
     exists: bool
     name: str | None = None
-
-
-class MyInvitationOut(BaseModel):
-    """One pending invite addressed to the caller, for the Inbox surface."""
-
-    id: str
-    workspace_id: str
-    workspace_name: str
-    role: Role
-    invited_by: str | None = None
-    expires_at: datetime
-
-
-class MyInvitationListEnvelope(BaseModel):
-    items: list[MyInvitationOut]
 
 
 class AcceptInviteRequest(BaseModel):
@@ -134,6 +120,7 @@ async def create_invitation(
         expires_at=inv.expires_at,
         accepted_at=inv.accepted_at,
         revoked_at=inv.revoked_at,
+        declined_at=inv.declined_at,
         link=outcome.link,
     )
 
@@ -160,6 +147,7 @@ async def list_invitations(
                 expires_at=row.expires_at,
                 accepted_at=row.accepted_at,
                 revoked_at=row.revoked_at,
+                declined_at=row.declined_at,
             )
             for row in rows
         ]
@@ -251,6 +239,7 @@ async def resend_invitation(
         expires_at=inv.expires_at,
         accepted_at=inv.accepted_at,
         revoked_at=inv.revoked_at,
+        declined_at=inv.declined_at,
         link=outcome.link,
     )
 
@@ -301,35 +290,6 @@ async def accept_invitation(
         if key.lower() == b"set-cookie":
             response.raw_headers.append((key, value))
     return response
-
-
-@router.get(
-    "/invitations/mine",
-    response_model=MyInvitationListEnvelope,
-)
-async def list_my_invitations(
-    user: User = Depends(current_active_user),
-    session: AsyncSession = Depends(get_async_session),
-) -> MyInvitationListEnvelope:
-    """Pending invites addressed to the caller's email, across workspaces.
-
-    Feeds the Inbox ``WORKSPACE_INVITE`` cards (M1e-9) so an already-verified
-    user can approve/decline in-app instead of hunting for the invite email.
-    """
-    rows = await _service(session).list_my_invitations(actor=user)
-    return MyInvitationListEnvelope(
-        items=[
-            MyInvitationOut(
-                id=row.id,
-                workspace_id=row.workspace_id,
-                workspace_name=row.workspace.name,
-                role=row.role,
-                invited_by=row.creator.name if row.creator else None,
-                expires_at=row.expires_at,
-            )
-            for row in rows
-        ]
-    )
 
 
 @router.post("/invitations/{invitation_id}/approve", status_code=status.HTTP_204_NO_CONTENT)

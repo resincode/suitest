@@ -71,10 +71,16 @@ const INVITE_FIXTURE = {
 describe("Inbox screen", () => {
   beforeEach(() => {
     resetCaps();
+    server.use(
+      http.get("*/api/v1/auth/me", () =>
+        HttpResponse.json({ id: "u_demo", email: "demo@suitest.dev", name: "Maya", memberships: [] }),
+      ),
+    );
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("renders the skeleton before /inbox resolves", async () => {
@@ -146,6 +152,17 @@ describe("Inbox screen", () => {
   it("renders a WORKSPACE_INVITE card and approves it (M1e-9)", async () => {
     let approved = false;
     server.use(
+      // The invitee already belongs to one workspace here — an empty
+      // membership list hits the app shell's onboarding gate, which
+      // disables pointer events on the rest of the page.
+      http.get("*/api/v1/auth/me", () =>
+        HttpResponse.json({
+          id: "u_demo",
+          email: "demo@suitest.dev",
+          name: "Maya",
+          memberships: [{ workspace_id: "ws_1", role: "OWNER", workspace: { id: "ws_1", slug: "demo", name: "Demo" } }],
+        }),
+      ),
       http.get("*/api/v1/inbox", () =>
         HttpResponse.json(approved ? { unreadCount: 0, items: [] } : INVITE_FIXTURE),
       ),
@@ -167,6 +184,14 @@ describe("Inbox screen", () => {
   it("declines a WORKSPACE_INVITE card", async () => {
     let declined = false;
     server.use(
+      http.get("*/api/v1/auth/me", () =>
+        HttpResponse.json({
+          id: "u_demo",
+          email: "demo@suitest.dev",
+          name: "Maya",
+          memberships: [{ workspace_id: "ws_1", role: "OWNER", workspace: { id: "ws_1", slug: "demo", name: "Demo" } }],
+        }),
+      ),
       http.get("*/api/v1/inbox", () =>
         HttpResponse.json(declined ? { unreadCount: 0, items: [] } : INVITE_FIXTURE),
       ),
