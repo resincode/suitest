@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     import uuid
     from collections.abc import Sequence
 
+    from sqlalchemy import Select
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -49,6 +50,13 @@ class ApiKeyRepo:
         await self.session.flush()
         return row
 
+    @staticmethod
+    def _owned_by(
+        stmt: Select[tuple[ApiKey]], created_by: uuid.UUID | None
+    ) -> Select[tuple[ApiKey]]:
+        """Append the optional creator filter shared by list/revoke scoping."""
+        return stmt if created_by is None else stmt.where(ApiKey.created_by == created_by)
+
     async def list_active(
         self, workspace_id: str, created_by: uuid.UUID | None = None
     ) -> Sequence[ApiKey]:
@@ -57,11 +65,10 @@ class ApiKeyRepo:
         ``created_by`` narrows the result to one creator's keys — the QA
         scoping: members may list what they minted, admins see everything.
         """
-        stmt = select(ApiKey).where(
-            ApiKey.workspace_id == workspace_id, ApiKey.revoked_at.is_(None)
+        stmt = self._owned_by(
+            select(ApiKey).where(ApiKey.workspace_id == workspace_id, ApiKey.revoked_at.is_(None)),
+            created_by,
         )
-        if created_by is not None:
-            stmt = stmt.where(ApiKey.created_by == created_by)
         result = await self.session.scalars(stmt.order_by(ApiKey.created_at.desc()))
         return result.all()
 
@@ -95,9 +102,10 @@ class ApiKeyRepo:
         (when ``created_by`` is set) belongs to someone else — callers surface
         all three as 404 without distinguishing them.
         """
-        stmt = select(ApiKey).where(ApiKey.id == key_id, ApiKey.workspace_id == workspace_id)
-        if created_by is not None:
-            stmt = stmt.where(ApiKey.created_by == created_by)
+        stmt = self._owned_by(
+            select(ApiKey).where(ApiKey.id == key_id, ApiKey.workspace_id == workspace_id),
+            created_by,
+        )
         row = await self.session.scalar(stmt)
         if row is None or row.revoked_at is not None:
             return None
