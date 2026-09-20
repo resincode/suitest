@@ -3588,6 +3588,17 @@
             "title": "Createdat",
             "type": "string"
           },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiresat"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -14650,7 +14661,7 @@
     },
     "/api/v1/inbox": {
       "get": {
-        "description": "List inbox items for the caller.\n\nThe six pre-existing kinds stay empty (no aggregator yet); pending\nworkspace invites (``WORKSPACE_INVITE``) are real.",
+        "description": "List inbox items for the caller.\n\n``WORKSPACE_INVITE`` is cross-workspace (by the caller's email); the four\nworkspace-scoped aggregators only run when ``X-Workspace-Id`` resolves to\na workspace the caller is a member of. ``AGENT_GENERATION``/\n``AGENT_DIAGNOSIS`` stay empty (no aggregator yet).",
         "operationId": "list_inbox_api_v1_inbox_get",
         "parameters": [
           {
@@ -14661,6 +14672,22 @@
               "default": "all",
               "title": "Status",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
             }
           }
         ],

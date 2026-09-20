@@ -933,11 +933,15 @@ Note: in ZERO tier, "indexed" status only shows FTS index status (`fastembed` se
 
 Path: `/inbox`. Component: `src/routes/(app)/inbox.tsx`.
 
-**Body:** stacked notification cards. Each card: icon + title + body + Review/Dismiss buttons + timestamp.
+> **Built:** `WORKSPACE_INVITE` (M1e-9) and the four ZERO-tier aggregators below (M1e-9 follow-up) are real, backed by `GET /inbox`. `AGENT_GENERATION`/`AGENT_DIAGNOSIS` remain a wire-shape stub pending the M1d/M2 agent event aggregator.
+
+**Body:** stacked notification cards. Each card: icon + title + body + Review/Dismiss buttons + timestamp. `WORKSPACE_INVITE` cards additionally show an expiry countdown and replace Review/Dismiss with Approve/Decline (see below); the other real kinds keep the disabled Review/Dismiss placeholders until a mark-read/dismiss endpoint exists.
 
 Item types depend on capability:
-- ZERO: deploy gate failures, flaky test promotions, manual run failures, MCP health alerts
+- ZERO: deploy gate failures (`DEPLOY_GATE_FAIL`, CI-triggered run FAIL/ERROR), manual run failures (`MANUAL_RUN_FAIL`), MCP health alerts (`MCP_HEALTH`, provider reporting `down`), flaky test promotions (`FLAKY_PROMOTION`, reuses the M1-26 flaky rule — "currently flaky", not a persisted state transition), and pending workspace invitations (`WORKSPACE_INVITE`, cross-workspace by the caller's email, no capability gate)
 - LOCAL/CLOUD adds: AI-generated cases pending approval (assist mode), auto-diagnosis pending review, AI fix PR pending merge
+
+**`WORKSPACE_INVITE` approve/decline (M1e-9):** an already-registered invitee sees who invited them, to which workspace, as what role, and an expiry countdown; Approve/Decline call `POST /invitations/:id/approve|decline` and invalidate the Inbox + `/auth/me` queries so the workspace switcher picks up a newly joined workspace without a manual reload. The inviting admin's Members panel refreshes live on the same action via the `invitation.resolved` workspace WS event (`useWorkspaceStream`) instead of waiting for a manual reload.
 
 ### 3.11 Screenshot diff — `components/runs/ScreenshotDiffViewer.tsx`
 

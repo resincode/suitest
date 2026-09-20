@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { MembersPanel } from "@/components/settings/MembersPanel";
 import { server } from "@/mocks/server";
+import { useActiveWorkspace } from "@/stores/use-active-workspace";
+import { installMockWs } from "@/test/mock-ws";
 
 const FUTURE = "2099-06-07T10:00:00Z";
 
@@ -32,7 +34,9 @@ describe("MembersPanel", () => {
   });
 
   it("lists members", async () => {
-    server.use(http.get("*/api/v1/workspaces/ws_1/invitations", () => HttpResponse.json({ items: [] })));
+    server.use(
+      http.get("*/api/v1/workspaces/ws_1/invitations", () => HttpResponse.json({ items: [] })),
+    );
     renderPanel();
     expect(await screen.findByText("owner@example.test")).toBeInTheDocument();
   });
@@ -181,5 +185,45 @@ describe("MembersPanel", () => {
     await user.click(await screen.findByTestId("resend-inv_1"));
     const panel = await screen.findByTestId("invite-link-panel");
     expect(within(panel).getByText(/token=rotated/)).toBeInTheDocument();
+  });
+
+  it("refreshes members and invitations on an `invitation.resolved` WS event", async () => {
+    let membersCalls = 0;
+    let invitesCalls = 0;
+    server.use(
+      http.get("*/api/v1/workspaces/ws_1/members", () => {
+        membersCalls += 1;
+        return HttpResponse.json([member]);
+      }),
+      http.get("*/api/v1/workspaces/ws_1/invitations", () => {
+        invitesCalls += 1;
+        return HttpResponse.json({ items: [] });
+      }),
+    );
+
+    useActiveWorkspace.setState({ workspaceId: "ws_1" });
+    const { ws, restore } = installMockWs();
+    try {
+      renderPanel("ADMIN");
+      await screen.findByText("owner@example.test");
+      const membersBefore = membersCalls;
+      const invitesBefore = invitesCalls;
+
+      await act(async () => {
+        ws.emit({
+          topic: "workspace:ws_1",
+          event: "invitation.resolved",
+          data: { invitationId: "inv_1", status: "approved", email: "qa@example.test" },
+        });
+      });
+
+      await waitFor(() => {
+        expect(membersCalls).toBeGreaterThan(membersBefore);
+        expect(invitesCalls).toBeGreaterThan(invitesBefore);
+      });
+    } finally {
+      restore();
+      useActiveWorkspace.setState({ workspaceId: null });
+    }
   });
 });

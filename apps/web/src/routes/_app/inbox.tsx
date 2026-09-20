@@ -21,12 +21,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBoundary } from "@/components/shared/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { approveInvitation, declineInvitation } from "@/lib/api-client";
-import {
-  isZeroSafeKind,
-  useInbox,
-  type InboxItem,
-  type InboxItemKind,
-} from "@/hooks/use-inbox";
+import { isZeroSafeKind, useInbox, type InboxItem, type InboxItemKind } from "@/hooks/use-inbox";
 import { useCapabilities } from "@/stores/use-capabilities";
 
 function kindMeta(kind: InboxItemKind): { icon: LucideIcon; tone: string; label: string } {
@@ -107,6 +102,7 @@ function InviteActions({ invitationId }: { invitationId: string }): React.ReactE
 }
 
 function NotificationCard({ item }: { item: InboxItem }): React.ReactElement {
+  const { t } = useTranslation();
   const meta = kindMeta(item.kind);
   const Icon = meta.icon;
   return (
@@ -130,6 +126,11 @@ function NotificationCard({ item }: { item: InboxItem }): React.ReactElement {
           </span>
         </div>
         <p className="text-[12.5px] text-fg-3">{item.body}</p>
+        {item.expiresAt ? (
+          <p className="font-mono text-[10.5px] text-fg-5" data-testid="inbox-invite-expiry">
+            {t("inbox.expires", { time: formatRelativeTime(item.expiresAt) })}
+          </p>
+        ) : null}
         <div className="mt-1 flex items-center justify-between">
           <span className="font-mono text-[10.5px] text-fg-5">
             {meta.label}
@@ -163,11 +164,7 @@ function InboxList(): React.ReactElement {
 
   if (visible.length === 0) {
     return (
-      <EmptyState
-        icon={InboxIcon}
-        title="Inbox is empty"
-        subtitle="Nothing needs attention."
-      />
+      <EmptyState icon={InboxIcon} title="Inbox is empty" subtitle="Nothing needs attention." />
     );
   }
 
@@ -205,7 +202,9 @@ function InboxHeader(): React.ReactElement {
   return (
     <header className="flex items-center justify-between" data-testid="inbox-header">
       <div className="flex items-center gap-2.5">
-        <h2 className="text-[20px] font-semibold tracking-[-.01em] text-fg-1">{t("inbox.title")}</h2>
+        <h2 className="text-[20px] font-semibold tracking-[-.01em] text-fg-1">
+          {t("inbox.title")}
+        </h2>
         <Suspense fallback={null}>
           <UnreadBadge />
         </Suspense>

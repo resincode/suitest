@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { CopyButton } from "@/components/shared/CopyButton";
 import {
@@ -23,6 +24,7 @@ import {
   revokeInvitation,
   type Role,
 } from "@/lib/api-client";
+import { useWorkspaceStream } from "@/lib/ws-client";
 
 /** Debounce delay before an in-flight email is checked against existing
  * accounts (M1e-9 autocomplete chip) — long enough to skip mid-typing. */
@@ -44,6 +46,14 @@ const STATUS_STYLE: Record<InvitationStatus, string> = {
   expired: "text-red",
 };
 
+const STATUS_KEY: Record<InvitationStatus, string> = {
+  pending: "members.statusPending",
+  accepted: "members.statusAccepted",
+  revoked: "members.statusRevoked",
+  declined: "members.statusDeclined",
+  expired: "members.statusExpired",
+};
+
 interface MembersPanelProps {
   workspaceId: string;
   /** Current user's role in this workspace; gates the Invite affordances. */
@@ -51,6 +61,7 @@ interface MembersPanelProps {
 }
 
 export function MembersPanel({ workspaceId, currentRole }: MembersPanelProps): React.ReactElement {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const isAdmin = canManageInvites(currentRole);
 
@@ -72,6 +83,20 @@ export function MembersPanel({ workspaceId, currentRole }: MembersPanelProps): R
     void queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId, "invitations"] });
   };
 
+  const invalidateMembers = (): void => {
+    void queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId, "members"] });
+  };
+
+  // M1e-9 follow-up: the invitee's approve/decline resolves out-of-band (a
+  // different browser tab/session) — refresh both lists live instead of
+  // waiting for this admin to reload the page.
+  useWorkspaceStream((e) => {
+    if (e.event === "invitation.resolved") {
+      invalidateInvites();
+      invalidateMembers();
+    }
+  });
+
   const revokeMutation = useMutation({
     mutationFn: (id: string) => revokeInvitation(id),
     onSuccess: invalidateInvites,
@@ -91,7 +116,7 @@ export function MembersPanel({ workspaceId, currentRole }: MembersPanelProps): R
     <div className="space-y-6">
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-fg-1">Members</h2>
+          <h2 className="text-[15px] font-semibold text-fg-1">{t("members.title")}</h2>
           {isAdmin ? (
             <button
               type="button"
@@ -102,7 +127,7 @@ export function MembersPanel({ workspaceId, currentRole }: MembersPanelProps): R
               className="inline-flex h-8 items-center rounded-md bg-accent px-3 text-[13px] font-medium text-accent-fg hover:opacity-90"
               data-testid="invite-button"
             >
-              Invite
+              {t("members.inviteButton")}
             </button>
           ) : null}
         </div>
@@ -112,16 +137,16 @@ export function MembersPanel({ workspaceId, currentRole }: MembersPanelProps): R
             role="alert"
             className="rounded-md border border-red/30 bg-red/10 px-3 py-2 text-[12.5px] text-red"
           >
-            Could not load members. Try again.
+            {t("members.loadError")}
           </p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-border">
             <table className="w-full text-left text-[13px]">
               <thead className="bg-bg-elev-2 text-[11px] uppercase tracking-[0.07em] text-fg-4">
                 <tr>
-                  <th className="px-3 py-2 font-medium">Member</th>
-                  <th className="px-3 py-2 font-medium">Email</th>
-                  <th className="px-3 py-2 font-medium">Role</th>
+                  <th className="px-3 py-2 font-medium">{t("members.columnMember")}</th>
+                  <th className="px-3 py-2 font-medium">{t("members.columnEmail")}</th>
+                  <th className="px-3 py-2 font-medium">{t("members.columnRole")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -140,25 +165,27 @@ export function MembersPanel({ workspaceId, currentRole }: MembersPanelProps): R
 
       {isAdmin ? (
         <section className="space-y-3">
-          <h2 className="text-[15px] font-semibold text-fg-1">Pending invitations</h2>
+          <h2 className="text-[15px] font-semibold text-fg-1">{t("members.pendingTitle")}</h2>
           {invitesQuery.isError ? (
             <p
               role="alert"
               className="rounded-md border border-red/30 bg-red/10 px-3 py-2 text-[12.5px] text-red"
             >
-              Could not load invitations. Try again.
+              {t("members.pendingLoadError")}
             </p>
           ) : (invitesQuery.data ?? []).length === 0 ? (
-            <p className="text-[13px] text-fg-4">No invitations yet.</p>
+            <p className="text-[13px] text-fg-4">{t("members.pendingEmpty")}</p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-left text-[13px]">
                 <thead className="bg-bg-elev-2 text-[11px] uppercase tracking-[0.07em] text-fg-4">
                   <tr>
-                    <th className="px-3 py-2 font-medium">Email</th>
-                    <th className="px-3 py-2 font-medium">Role</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 text-right font-medium">Actions</th>
+                    <th className="px-3 py-2 font-medium">{t("members.columnEmail")}</th>
+                    <th className="px-3 py-2 font-medium">{t("members.columnRole")}</th>
+                    <th className="px-3 py-2 font-medium">{t("members.columnStatus")}</th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      {t("members.columnActions")}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -168,7 +195,9 @@ export function MembersPanel({ workspaceId, currentRole }: MembersPanelProps): R
                       <tr key={inv.id} className="border-t border-border" data-testid="invite-row">
                         <td className="px-3 py-2 text-fg-1">{inv.email}</td>
                         <td className="px-3 py-2 font-mono text-[12px] text-fg-1">{inv.role}</td>
-                        <td className={`px-3 py-2 font-medium ${STATUS_STYLE[status]}`}>{status}</td>
+                        <td className={`px-3 py-2 font-medium ${STATUS_STYLE[status]}`}>
+                          {t(STATUS_KEY[status])}
+                        </td>
                         <td className="px-3 py-2">
                           {status === "pending" ? (
                             <div className="flex items-center justify-end gap-2">
@@ -179,7 +208,7 @@ export function MembersPanel({ workspaceId, currentRole }: MembersPanelProps): R
                                 className="rounded-md px-2 py-1 text-[12px] font-medium text-fg-1 hover:bg-bg-elev-2 disabled:opacity-50"
                                 data-testid={`resend-${inv.id}`}
                               >
-                                Resend
+                                {t("members.resend")}
                               </button>
                               <button
                                 type="button"
@@ -188,7 +217,7 @@ export function MembersPanel({ workspaceId, currentRole }: MembersPanelProps): R
                                 className="rounded-md px-2 py-1 text-[12px] font-medium text-red hover:bg-red/10 disabled:opacity-50"
                                 data-testid={`revoke-${inv.id}`}
                               >
-                                Revoke
+                                {t("members.revoke")}
                               </button>
                             </div>
                           ) : null}
@@ -207,18 +236,16 @@ export function MembersPanel({ workspaceId, currentRole }: MembersPanelProps): R
               data-testid="invite-link-panel"
             >
               <p className="text-[12.5px] font-medium text-fg-1">
-                Personal link for {created.email}
+                {t("members.linkTitle", { email: created.email })}
               </p>
               <p className="text-[12px] text-fg-4">
-                Send this link only to {created.email}. It works once and lets
-                that person claim their own account — it cannot be reused by
-                anyone else.
+                {t("members.linkWarning", { email: created.email })}
               </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 truncate rounded-md border border-border bg-bg-base px-3 py-2 font-mono text-[12px] text-fg-1">
                   {created.link}
                 </code>
-                <CopyButton value={created.link} label="Copy link" />
+                <CopyButton value={created.link} label={t("members.copyLink")} />
               </div>
             </div>
           ) : null}
@@ -253,13 +280,17 @@ function InviteModal({
   onOpenChange,
   onCreated,
 }: InviteModalProps): React.ReactElement {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [debouncedEmail, setDebouncedEmail] = useState("");
   const [role, setRole] = useState<Role>("QA");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedEmail(email.trim().toLowerCase()), EMAIL_LOOKUP_DEBOUNCE_MS);
+    const timer = setTimeout(
+      () => setDebouncedEmail(email.trim().toLowerCase()),
+      EMAIL_LOOKUP_DEBOUNCE_MS,
+    );
     return () => clearTimeout(timer);
   }, [email]);
 
@@ -281,10 +312,10 @@ function InviteModal({
     },
     onError: (err) => {
       if (err instanceof ApiError && err.status === 409) {
-        setError("That email already belongs to a member of this workspace.");
+        setError(t("members.conflictError"));
         return;
       }
-      setError("Could not create the invitation. Please try again.");
+      setError(t("members.genericError"));
     },
   });
 
@@ -292,10 +323,8 @@ function InviteModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Invite a member</DialogTitle>
-          <DialogDescription>
-            They will receive a one-time link to join this workspace.
-          </DialogDescription>
+          <DialogTitle>{t("members.inviteModalTitle")}</DialogTitle>
+          <DialogDescription>{t("members.inviteModalDescription")}</DialogDescription>
         </DialogHeader>
 
         <form
@@ -307,7 +336,7 @@ function InviteModal({
         >
           <div className="space-y-2">
             <label htmlFor="invite-email" className="text-[12.5px] font-medium text-fg-1">
-              Email
+              {t("members.emailLabel")}
             </label>
             <input
               id="invite-email"
@@ -323,15 +352,14 @@ function InviteModal({
                 data-testid="invite-lookup-match"
                 className="rounded-md border border-accent/20 bg-accent/10 px-2.5 py-1.5 text-[12px] text-accent"
               >
-                {lookup.data.name} is already registered — they will see this in their Inbox to
-                approve.
+                {t("members.lookupMatch", { name: lookup.data.name })}
               </p>
             ) : null}
           </div>
 
           <div className="space-y-2">
             <label htmlFor="invite-role" className="text-[12.5px] font-medium text-fg-1">
-              Role
+              {t("members.roleLabel")}
             </label>
             <select
               id="invite-role"
@@ -364,7 +392,7 @@ function InviteModal({
               className="inline-flex h-9 items-center rounded-md bg-accent px-4 text-[13px] font-medium text-accent-fg hover:opacity-90 disabled:opacity-60"
               data-testid="invite-submit"
             >
-              {createMutation.isPending ? "Creating…" : "Create invitation"}
+              {createMutation.isPending ? t("members.creating") : t("members.createInvitation")}
             </button>
           </DialogFooter>
         </form>

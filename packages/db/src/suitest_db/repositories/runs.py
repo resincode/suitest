@@ -159,6 +159,31 @@ class RunRepo(AsyncRepository[Run, RunCreate, RunUpdate]):
         stmt = select(Run).join(ranked, ranked.c.id == Run.id).where(ranked.c.rank == 1)
         return {run.project_id: run for run in (await self.session.scalars(stmt)).all()}
 
+    async def list_failed_by_workspace(
+        self,
+        workspace_id: str,
+        *,
+        triggers: Sequence[RunTrigger],
+        limit: int = 10,
+    ) -> Sequence[Run]:
+        """Newest-first FAIL/ERROR runs of ``triggers``, for the Inbox aggregator.
+
+        Backs ``DEPLOY_GATE_FAIL`` (CI-triggered) and ``MANUAL_RUN_FAIL``
+        (human-triggered) cards. ``Run.workspace_id`` is denormalised onto the
+        row (see ``set_workspace_id``), so this needs no join to ``Project``.
+        """
+        stmt = (
+            select(Run)
+            .where(
+                Run.workspace_id == workspace_id,
+                Run.trigger.in_(triggers),
+                Run.status.in_((RunStatus.FAIL, RunStatus.ERROR)),
+            )
+            .order_by(Run.completed_at.desc().nulls_last(), Run.created_at.desc())
+            .limit(limit)
+        )
+        return (await self.session.scalars(stmt)).all()
+
     async def list_since(self, project_id: str, since: datetime) -> Sequence[Run]:
         """All runs for a project created at/after ``since`` (analytics windows)."""
         stmt = (

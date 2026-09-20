@@ -447,3 +447,215 @@ async def test_declined_invitation_cannot_be_accepted_via_stale_email_link(
             )
         )
         assert membership is None
+
+
+@pytest.mark.asyncio
+async def test_create_invitation_writes_audit_row(api_db: ApiDb) -> None:
+    admin = await api_db.seed_user(email="audit-create-admin@example.com", name="Admin")
+    ws = await api_db.seed_workspace(slug="audit-create-ws", name="Acme")
+    await api_db.seed_membership(workspace_id=ws.id, user_id=admin.id, role=Role.ADMIN)
+
+    client = await _client_for(api_db, admin)
+    async with client:
+        created = await client.post(
+            f"/api/v1/workspaces/{ws.id}/invitations",
+            json={"email": "qa@example.com", "role": "QA"},
+        )
+        invitation_id = created.json()["id"]
+
+    async with api_db.maker() as session:
+        audit_row = await session.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "invitation.create",
+                AuditLog.resource_id == invitation_id,
+            )
+        )
+        assert audit_row is not None
+        assert audit_row.workspace_id == ws.id
+        assert audit_row.user_id == admin.id
+        assert audit_row.metadata_json is not None
+        assert audit_row.metadata_json["email"] == "qa@example.com"
+
+
+@pytest.mark.asyncio
+async def test_revoke_and_resend_invitation_write_audit_rows(api_db: ApiDb) -> None:
+    admin = await api_db.seed_user(email="audit-rr-admin@example.com", name="Admin")
+    ws = await api_db.seed_workspace(slug="audit-rr-ws", name="Acme")
+    await api_db.seed_membership(workspace_id=ws.id, user_id=admin.id, role=Role.ADMIN)
+
+    client = await _client_for(api_db, admin)
+    async with client:
+        created = await client.post(
+            f"/api/v1/workspaces/{ws.id}/invitations",
+            json={"email": "qa@example.com", "role": "QA"},
+        )
+        invitation_id = created.json()["id"]
+
+        resent = await client.post(f"/api/v1/invitations/{invitation_id}/resend")
+        assert resent.status_code == 200
+
+        revoked = await client.post(f"/api/v1/invitations/{invitation_id}/revoke")
+        assert revoked.status_code == 204
+
+    async with api_db.maker() as session:
+        resend_row = await session.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "invitation.resend",
+                AuditLog.resource_id == invitation_id,
+            )
+        )
+        assert resend_row is not None
+        assert resend_row.user_id == admin.id
+
+        revoke_row = await session.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "invitation.revoke",
+                AuditLog.resource_id == invitation_id,
+            )
+        )
+        assert revoke_row is not None
+        assert revoke_row.user_id == admin.id
+
+
+@pytest.mark.asyncio
+async def test_accept_invite_writes_audit_row(api_db: ApiDb) -> None:
+    admin = await api_db.seed_user(email="audit-accept-admin@example.com", name="Admin")
+    ws = await api_db.seed_workspace(slug="audit-accept-ws", name="Acme")
+    await api_db.seed_membership(workspace_id=ws.id, user_id=admin.id, role=Role.ADMIN)
+    authed = await _client_for(api_db, admin)
+    async with authed:
+        created = await authed.post(
+            f"/api/v1/workspaces/{ws.id}/invitations",
+            json={"email": "qa-accept@example.com", "role": "QA"},
+        )
+        invitation_id = created.json()["id"]
+    token = created.json()["link"].split("token=", 1)[1]
+
+    public = await _client_for(api_db, None)
+    async with public:
+        accepted = await public.post(
+            "/api/v1/auth/accept-invite",
+            json={
+                "token": token,
+                "email": "qa-accept@example.com",
+                "name": "QA User",
+                "password": "secret123",
+            },
+        )
+        assert accepted.status_code == 200
+
+    async with api_db.maker() as session:
+        user = await session.scalar(select(User).filter_by(email="qa-accept@example.com"))
+        assert user is not None
+        audit_row = await session.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "invitation.accept",
+                AuditLog.resource_id == invitation_id,
+            )
+        )
+        assert audit_row is not None
+        assert audit_row.workspace_id == ws.id
+        assert audit_row.user_id == user.id
+
+
+# ---------------------------------------------------------------------------
+# WS broadcast — invitation.resolved (M1e-9 follow-up)
+# ---------------------------------------------------------------------------
+
+
+# mypy: warn_unused_ignores=False
+async def _drain_one(pubsub: object, received: list[bytes]) -> None:
+    await pubsub.get_message(ignore_subscribe_messages=False, timeout=1.0)  # type: ignore[attr-defined]
+    for _ in range(5):
+        msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)  # type: ignore[attr-defined]
+        if msg is not None:
+            received.append(msg["data"])
+            return
+
+
+@pytest.mark.asyncio
+async def test_approve_invitation_emits_ws_event(api_db: ApiDb) -> None:
+    """Approving publishes ``invitation.resolved`` so the inviting admin's
+    Members panel can refresh live instead of on a manual reload."""
+    import fakeredis
+    import fakeredis.aioredis
+    from asgi_lifespan import LifespanManager
+
+    admin = await api_db.seed_user(email="ws-approve-admin@example.com", name="Admin")
+    alice = await api_db.seed_user(email="ws-approve-alice@example.com", name="Alice")
+    ws = await api_db.seed_workspace(slug="ws-approve-ws", name="Acme")
+    await api_db.seed_membership(workspace_id=ws.id, user_id=admin.id, role=Role.ADMIN)
+
+    admin_client = await _client_for(api_db, admin)
+    async with admin_client:
+        created = await admin_client.post(
+            f"/api/v1/workspaces/{ws.id}/invitations",
+            json={"email": "ws-approve-alice@example.com", "role": "QA"},
+        )
+        invitation_id = created.json()["id"]
+
+    server = fakeredis.FakeServer()
+    redis_client = fakeredis.aioredis.FakeRedis(server=server, decode_responses=False)
+    received: list[bytes] = []
+
+    app = api_db.app_for(alice)
+    app.state.ws_redis = redis_client
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(f"workspace:{ws.id}")
+
+    async with LifespanManager(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            approved = await c.post(f"/api/v1/invitations/{invitation_id}/approve")
+            assert approved.status_code == 204
+            await _drain_one(pubsub, received)
+
+    await pubsub.aclose()  # type: ignore[no-untyped-call]
+    await redis_client.aclose()  # type: ignore[no-untyped-call]
+    assert received, "WS publish must reach the workspace:<id> channel"
+    decoded = received[0].decode()
+    assert "invitation.resolved" in decoded
+    assert "approved" in decoded
+
+
+@pytest.mark.asyncio
+async def test_decline_invitation_emits_ws_event(api_db: ApiDb) -> None:
+    import fakeredis
+    import fakeredis.aioredis
+    from asgi_lifespan import LifespanManager
+
+    admin = await api_db.seed_user(email="ws-decline-admin@example.com", name="Admin")
+    alice = await api_db.seed_user(email="ws-decline-alice@example.com", name="Alice")
+    ws = await api_db.seed_workspace(slug="ws-decline-ws", name="Acme")
+    await api_db.seed_membership(workspace_id=ws.id, user_id=admin.id, role=Role.ADMIN)
+
+    admin_client = await _client_for(api_db, admin)
+    async with admin_client:
+        created = await admin_client.post(
+            f"/api/v1/workspaces/{ws.id}/invitations",
+            json={"email": "ws-decline-alice@example.com", "role": "QA"},
+        )
+        invitation_id = created.json()["id"]
+
+    server = fakeredis.FakeServer()
+    redis_client = fakeredis.aioredis.FakeRedis(server=server, decode_responses=False)
+    received: list[bytes] = []
+
+    app = api_db.app_for(alice)
+    app.state.ws_redis = redis_client
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(f"workspace:{ws.id}")
+
+    async with LifespanManager(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            declined = await c.post(f"/api/v1/invitations/{invitation_id}/decline")
+            assert declined.status_code == 204
+            await _drain_one(pubsub, received)
+
+    await pubsub.aclose()  # type: ignore[no-untyped-call]
+    await redis_client.aclose()  # type: ignore[no-untyped-call]
+    assert received, "WS publish must reach the workspace:<id> channel"
+    decoded = received[0].decode()
+    assert "invitation.resolved" in decoded
+    assert "declined" in decoded

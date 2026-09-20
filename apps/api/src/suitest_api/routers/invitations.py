@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,7 @@ from suitest_api.services.invitation_service import (
     InvitationService,
 )
 from suitest_api.settings import get_settings
+from suitest_api.ws.publisher import publish_event
 
 router = APIRouter(prefix="/api/v1", tags=["invitations"])
 
@@ -295,6 +296,7 @@ async def accept_invitation(
 @router.post("/invitations/{invitation_id}/approve", status_code=status.HTTP_204_NO_CONTENT)
 async def approve_invitation(
     invitation_id: str,
+    request: Request,
     user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
@@ -302,7 +304,7 @@ async def approve_invitation(
     this skips the token/password/"set your name" detour ``/auth/accept-invite``
     needs for an anonymous link click."""
     try:
-        await _service(session).approve(invitation_id=invitation_id, actor=user)
+        membership = await _service(session).approve(invitation_id=invitation_id, actor=user)
     except InvitationNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="invite not found"
@@ -313,17 +315,26 @@ async def approve_invitation(
             detail="This invitation was issued to a different email address.",
         ) from exc
     await session.commit()
+    # Out-of-band, post-commit: the Members panel refetches on this event
+    # instead of waiting for the admin's next manual reload.
+    await publish_event(
+        request,
+        topic=f"workspace:{membership.workspace_id}",
+        event="invitation.resolved",
+        data={"invitationId": invitation_id, "status": "approved", "email": user.email},
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/invitations/{invitation_id}/decline", status_code=status.HTTP_204_NO_CONTENT)
 async def decline_invitation(
     invitation_id: str,
+    request: Request,
     user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     try:
-        await _service(session).decline(invitation_id=invitation_id, actor=user)
+        invitation = await _service(session).decline(invitation_id=invitation_id, actor=user)
     except InvitationNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="invite not found"
@@ -334,4 +345,10 @@ async def decline_invitation(
             detail="This invitation was issued to a different email address.",
         ) from exc
     await session.commit()
+    await publish_event(
+        request,
+        topic=f"workspace:{invitation.workspace_id}",
+        event="invitation.resolved",
+        data={"invitationId": invitation_id, "status": "declined", "email": invitation.email},
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

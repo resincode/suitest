@@ -1,9 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  RouterProvider,
-  createMemoryHistory,
-  createRouter,
-} from "@tanstack/react-router";
+import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -63,6 +59,7 @@ const INVITE_FIXTURE = {
       title: "Admin invited you to Acme",
       body: "Join as QA — approve or decline below.",
       createdAt: "2026-05-27T11:13:40Z",
+      expiresAt: "2099-01-01T00:00:00Z",
       status: "unread",
     },
   ],
@@ -73,7 +70,12 @@ describe("Inbox screen", () => {
     resetCaps();
     server.use(
       http.get("*/api/v1/auth/me", () =>
-        HttpResponse.json({ id: "u_demo", email: "demo@suitest.dev", name: "Maya", memberships: [] }),
+        HttpResponse.json({
+          id: "u_demo",
+          email: "demo@suitest.dev",
+          name: "Maya",
+          memberships: [],
+        }),
       ),
     );
   });
@@ -120,9 +122,7 @@ describe("Inbox screen", () => {
   });
 
   it("renders the empty state when there are no items", async () => {
-    server.use(
-      http.get("*/api/v1/inbox", () => HttpResponse.json({ unreadCount: 0, items: [] })),
-    );
+    server.use(http.get("*/api/v1/inbox", () => HttpResponse.json({ unreadCount: 0, items: [] })));
     renderInbox();
     expect(
       await screen.findByText(/Inbox is empty/i, undefined, { timeout: 3000 }),
@@ -160,7 +160,13 @@ describe("Inbox screen", () => {
           id: "u_demo",
           email: "demo@suitest.dev",
           name: "Maya",
-          memberships: [{ workspace_id: "ws_1", role: "OWNER", workspace: { id: "ws_1", slug: "demo", name: "Demo" } }],
+          memberships: [
+            {
+              workspace_id: "ws_1",
+              role: "OWNER",
+              workspace: { id: "ws_1", slug: "demo", name: "Demo" },
+            },
+          ],
         }),
       ),
       http.get("*/api/v1/inbox", () =>
@@ -181,6 +187,29 @@ describe("Inbox screen", () => {
     expect(await screen.findByText(/Inbox is empty/i)).toBeInTheDocument();
   });
 
+  it("shows an expiry countdown on a WORKSPACE_INVITE card", async () => {
+    server.use(
+      http.get("*/api/v1/auth/me", () =>
+        HttpResponse.json({
+          id: "u_demo",
+          email: "demo@suitest.dev",
+          name: "Maya",
+          memberships: [
+            {
+              workspace_id: "ws_1",
+              role: "OWNER",
+              workspace: { id: "ws_1", slug: "demo", name: "Demo" },
+            },
+          ],
+        }),
+      ),
+      http.get("*/api/v1/inbox", () => HttpResponse.json(INVITE_FIXTURE)),
+    );
+    renderInbox();
+    const expiry = await screen.findByTestId("inbox-invite-expiry", undefined, { timeout: 3000 });
+    expect(expiry).toHaveTextContent(/Expires in/i);
+  });
+
   it("declines a WORKSPACE_INVITE card", async () => {
     let declined = false;
     server.use(
@@ -189,7 +218,13 @@ describe("Inbox screen", () => {
           id: "u_demo",
           email: "demo@suitest.dev",
           name: "Maya",
-          memberships: [{ workspace_id: "ws_1", role: "OWNER", workspace: { id: "ws_1", slug: "demo", name: "Demo" } }],
+          memberships: [
+            {
+              workspace_id: "ws_1",
+              role: "OWNER",
+              workspace: { id: "ws_1", slug: "demo", name: "Demo" },
+            },
+          ],
         }),
       ),
       http.get("*/api/v1/inbox", () =>

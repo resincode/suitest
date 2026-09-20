@@ -838,8 +838,10 @@ export interface paths {
          * List Inbox
          * @description List inbox items for the caller.
          *
-         *     The six pre-existing kinds stay empty (no aggregator yet); pending
-         *     workspace invites (``WORKSPACE_INVITE``) are real.
+         *     ``WORKSPACE_INVITE`` is cross-workspace (by the caller's email); the four
+         *     workspace-scoped aggregators only run when ``X-Workspace-Id`` resolves to
+         *     a workspace the caller is a member of. ``AGENT_GENERATION``/
+         *     ``AGENT_DIAGNOSIS`` stay empty (no aggregator yet).
          */
         get: operations["list_inbox_api_v1_inbox_get"];
         put?: never;
@@ -5146,6 +5148,8 @@ export interface components {
             body: string;
             /** Createdat */
             createdAt: string;
+            /** Expiresat */
+            expiresAt?: string | null;
             /** Id */
             id: string;
             /**
@@ -10000,7 +10004,9 @@ export interface operations {
             query?: {
                 status?: string;
             };
-            header?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };

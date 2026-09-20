@@ -133,6 +133,16 @@ class InvitationService:
             ttl_hours=self.ttl_hours,
             created_by=actor.id,
         )
+        await write_audit(
+            self.session,
+            workspace_id=workspace_id,
+            user_id=str(actor.id),
+            action="invitation.create",
+            resource_type="invitation",
+            resource_id=invitation.id,
+            metadata={"email": invitation.email, "role": role.value},
+        )
+        await self.session.flush()
         return InvitationLink(invitation=invitation, raw_token=token, link=self._link(token))
 
     async def list_invitations(self, *, workspace_id: str, actor: User) -> list[Invitation]:
@@ -160,6 +170,16 @@ class InvitationService:
             raise InvitationNotFoundError
         await self._ensure_manager(invitation.workspace_id, actor)
         await self.repo.revoke(invitation)
+        await write_audit(
+            self.session,
+            workspace_id=invitation.workspace_id,
+            user_id=str(actor.id),
+            action="invitation.revoke",
+            resource_type="invitation",
+            resource_id=invitation.id,
+            metadata={"email": invitation.email},
+        )
+        await self.session.flush()
 
     async def resend(self, *, invitation_id: str, actor: User) -> InvitationLink:
         invitation = await self.repo.get_by_id(invitation_id)
@@ -168,6 +188,16 @@ class InvitationService:
         await self._ensure_manager(invitation.workspace_id, actor)
         token = new_invite_token()
         await self.repo.resend(invitation, token_hash=hash_token(token), ttl_hours=self.ttl_hours)
+        await write_audit(
+            self.session,
+            workspace_id=invitation.workspace_id,
+            user_id=str(actor.id),
+            action="invitation.resend",
+            resource_type="invitation",
+            resource_id=invitation.id,
+            metadata={"email": invitation.email},
+        )
+        await self.session.flush()
         return InvitationLink(invitation=invitation, raw_token=token, link=self._link(token))
 
     async def accept(self, *, token: str, email: str, name: str, password: str) -> AcceptOutcome:
@@ -237,6 +267,15 @@ class InvitationService:
                 )
             )
         await self.repo.mark_accepted(invitation)
+        await write_audit(
+            self.session,
+            workspace_id=invitation.workspace_id,
+            user_id=str(user.id),
+            action="invitation.accept",
+            resource_type="invitation",
+            resource_id=invitation.id,
+            metadata={"role": invitation.role.value},
+        )
         await self.session.flush()
         return AcceptOutcome(user=user, issues_session=issues_session)
 
@@ -276,7 +315,7 @@ class InvitationService:
         await self.session.flush()
         return membership
 
-    async def decline(self, *, invitation_id: str, actor: User) -> None:
+    async def decline(self, *, invitation_id: str, actor: User) -> Invitation:
         """Decline a pending invite as the already-authenticated invitee."""
         invitation = await self.repo.get_active_by_id(invitation_id)
         if invitation is None:
@@ -294,6 +333,7 @@ class InvitationService:
             metadata={"role": invitation.role.value},
         )
         await self.session.flush()
+        return invitation
 
     def _link(self, token: str) -> str:
         return f"{self.web_url}/accept-invite?token={token}"

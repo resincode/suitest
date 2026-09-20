@@ -175,6 +175,13 @@ export type WorkspaceEvent =
       // surfaces a confirm card (mutations always require explicit confirm).
       event: "agent.tool.call";
       data: { tool: string; arguments: Record<string, unknown>; agent_session_id: string };
+    }
+  | {
+      // M1e-9 follow-up: an invitee approved/declined an in-app invite —
+      // lets the inviting admin's Members panel refresh without a manual
+      // reload (mirrors `mcp.provider.health`).
+      event: "invitation.resolved";
+      data: { invitationId: string; status: "approved" | "declined"; email: string };
     };
 
 /**
@@ -243,7 +250,8 @@ function isWorkspaceEvent(raw: { event: string; payload: unknown }): raw is {
   return (
     raw.event === "mcp.provider.health" ||
     raw.event === "capability.changed" ||
-    raw.event === "agent.tool.call"
+    raw.event === "agent.tool.call" ||
+    raw.event === "invitation.resolved"
   );
 }
 

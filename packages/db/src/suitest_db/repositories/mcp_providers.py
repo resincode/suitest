@@ -47,6 +47,20 @@ class McpProviderRepo(AsyncRepository[McpProvider, McpProviderCreate, McpProvide
         )
         return (await self.session.scalars(stmt)).all()
 
+    async def list_unhealthy_by_workspace(
+        self, workspace_id: str, *, limit: int = 10
+    ) -> Sequence[McpProvider]:
+        """Workspace-registered providers currently reporting ``down``, for the
+        Inbox ``MCP_HEALTH`` card. Bundled/global providers (``workspace_id``
+        NULL) are excluded — they are not this workspace's to fix."""
+        stmt = (
+            select(McpProvider)
+            .where(McpProvider.workspace_id == workspace_id, McpProvider.health_status == "down")
+            .order_by(McpProvider.last_health_at.desc().nulls_last())
+            .limit(limit)
+        )
+        return (await self.session.scalars(stmt)).all()
+
     async def get_by_name(self, workspace_id: str, name: str) -> McpProvider | None:
         stmt = select(McpProvider).where(
             McpProvider.workspace_id == workspace_id, McpProvider.name == name
