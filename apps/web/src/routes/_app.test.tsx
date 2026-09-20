@@ -86,6 +86,39 @@ describe("<_app> route guard", () => {
     expect(await screen.findByTestId("create-workspace-dialog")).toBeInTheDocument();
   });
 
+  it("clears a stale workspaceId for a zero-membership user instead of bouncing to /login", async () => {
+    // Regression: `useActiveWorkspace` is localStorage-persisted, so a stale
+    // id from a revoked membership (or a different account on a shared
+    // browser) survives across sessions. A zero-membership user hitting this
+    // guard with that stale id previously kept it, the `/projects` fetch
+    // 403ed against it, and the catch-all bounced the whole protected shell
+    // to /login — even though `WORKSPACE_INVITE`-only visitors (M1e-9) must
+    // be able to reach /inbox with zero memberships.
+    useActiveWorkspace.setState({ workspaceId: "stale-foreign-ws" });
+    server.use(
+      http.get("*/api/v1/auth/me", () =>
+        HttpResponse.json({
+          id: "u_demo",
+          email: "demo@suitest.dev",
+          name: "Demo",
+          avatar_url: null,
+          memberships: [],
+        }),
+      ),
+      http.get("*/api/v1/projects", () =>
+        HttpResponse.json({ code: "FORBIDDEN", message: "not a member" }, { status: 403 }),
+      ),
+    );
+
+    const { router } = renderAt("/dashboard");
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/dashboard");
+    });
+    expect(await screen.findByTestId("create-workspace-dialog")).toBeInTheDocument();
+    expect(useActiveWorkspace.getState().workspaceId).toBeNull();
+  });
+
   it("redirects on network failure (no response)", async () => {
     server.use(http.get("*/api/v1/auth/me", () => HttpResponse.error()));
 

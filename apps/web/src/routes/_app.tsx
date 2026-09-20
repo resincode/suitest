@@ -48,12 +48,26 @@ export const Route = createFileRoute("/_app")({
       }
       // Seed the active workspace when the user hasn't picked one yet, OR when
       // the persisted id is stale (e.g. the DB was reseeded and workspace ids
-      // regenerated). Without this reconciliation the api-client keeps sending
-      // a dead `X-Workspace-Id`, and every authed endpoint returns 403
-      // "user is not a member of the requested workspace".
+      // regenerated, or this membership was since revoked). Without this
+      // reconciliation the api-client keeps sending a dead `X-Workspace-Id`,
+      // and every authed endpoint returns 403 "user is not a member of the
+      // requested workspace".
       const ws = useActiveWorkspace.getState();
       const validIds = new Set(me.memberships.map((m) => m.workspace_id));
-      if ((ws.workspaceId === null || !validIds.has(ws.workspaceId)) && me.memberships.length > 0) {
+      if (me.memberships.length === 0) {
+        // Zero-membership user (freshly invited/registered, or every
+        // membership was since revoked/left): ANY persisted `workspaceId` is
+        // necessarily stale or foreign — `useActiveWorkspace` is
+        // `localStorage`-persisted, so it survives logout and a different
+        // account logging in on the same browser. Previously this was left
+        // untouched, so the `/projects` fetch below still ran against the
+        // stale id, 403ed, and bounced the WHOLE shell to /login — exactly
+        // the scenario a WORKSPACE_INVITE-only Inbox visit needs to survive
+        // (M1e-9 follow-up bug, reported after M1e-10 shipped).
+        if (ws.workspaceId !== null) {
+          ws.setWorkspaceId(null);
+        }
+      } else if (ws.workspaceId === null || !validIds.has(ws.workspaceId)) {
         const first = me.memberships[0];
         if (first) {
           ws.setWorkspaceId(first.workspace_id);

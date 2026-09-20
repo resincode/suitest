@@ -1,9 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  RouterProvider,
-  createMemoryHistory,
-  createRouter,
-} from "@tanstack/react-router";
+import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
 import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -192,7 +188,24 @@ describe("Dashboard screen", () => {
 
   it("hides the onboarding card after dismissal and persists it", async () => {
     // Dismissal is keyed per workspace, so an active workspace must be set.
+    // `_app.beforeLoad` now clears a stale `workspaceId` for a truly
+    // zero-membership user (see the `_app.test.tsx` regression test), so
+    // this scenario needs a real membership in `ws_demo` to stay realistic.
     useActiveWorkspace.setState({ workspaceId: "ws_demo" });
+    server.use(
+      http.get("*/api/v1/auth/me", () =>
+        HttpResponse.json({
+          ...ME,
+          memberships: [
+            {
+              workspace_id: "ws_demo",
+              role: "OWNER",
+              workspace: { id: "ws_demo", slug: "demo", name: "Demo" },
+            },
+          ],
+        }),
+      ),
+    );
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(ONBOARDING_DISMISS_KEY, "1");
     }
