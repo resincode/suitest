@@ -1,9 +1,10 @@
 """Integration tests for ``/api/v1/workspaces/:id/api-keys``.
 
 * POST mints a key — plaintext returned once, only the hash is stored.
-* GET lists live keys and NEVER carries the secret.
+* GET lists live keys; only an admin's listing carries the secret.
 * DELETE revokes; revoked keys drop out of the list; unknown id → 404.
-* Non-admins cannot mint keys (ADMIN+ only).
+* QA mints/lists/revokes its OWN keys only; VIEWER is refused (403) — a key
+  authenticates as QA, so minting one from a read-only role would escalate.
 """
 
 from __future__ import annotations
@@ -29,6 +30,12 @@ async def _admin_ws(api_db: ApiDb, *, email: str, slug: str) -> tuple[User, Work
     ws = await api_db.seed_workspace(slug=slug, name=slug)
     await api_db.seed_membership(workspace_id=ws.id, user_id=user.id, role=Role.OWNER)
     return user, ws
+
+
+async def _member(api_db: ApiDb, ws: Workspace, *, email: str, role: Role) -> User:
+    user = await api_db.seed_user(email=email)
+    await api_db.seed_membership(workspace_id=ws.id, user_id=user.id, role=role)
+    return user
 
 
 @pytest.mark.asyncio
@@ -58,13 +65,28 @@ async def test_create_returns_plaintext_once_then_list_hides_it(api_db: ApiDb) -
 
 
 @pytest.mark.asyncio
-async def test_non_admin_cannot_list_keys(api_db: ApiDb) -> None:
+async def test_viewer_cannot_list_keys(api_db: ApiDb) -> None:
     ws = await api_db.seed_workspace(slug="ak-list-role", name="ak-list-role")
-    member = await api_db.seed_user(email="ak-list-member@example.com")
-    await api_db.seed_membership(workspace_id=ws.id, user_id=member.id, role=Role.QA)
-    async with api_db.client(member) as c:
+    viewer = await _member(api_db, ws, email="ak-list-viewer@example.com", role=Role.VIEWER)
+    async with api_db.client(viewer) as c:
         resp = await c.get(f"/api/v1/workspaces/{ws.id}/api-keys", headers=_h(ws.id))
         assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_qa_lists_only_own_keys_and_never_the_secret(api_db: ApiDb) -> None:
+    admin, ws = await _admin_ws(api_db, email="ak-scope-admin@example.com", slug="ak-scope")
+    qa = await _member(api_db, ws, email="ak-scope-qa@example.com", role=Role.QA)
+    async with api_db.client(admin) as c:
+        await c.post(f"/api/v1/workspaces/{ws.id}/api-keys", headers=_h(ws.id), json={"name": "a"})
+    async with api_db.client(qa) as c:
+        await c.post(f"/api/v1/workspaces/{ws.id}/api-keys", headers=_h(ws.id), json={"name": "q"})
+        listed = await c.get(f"/api/v1/workspaces/{ws.id}/api-keys", headers=_h(ws.id))
+        assert listed.status_code == 200, listed.text
+        items = listed.json()["items"]
+    assert [i["name"] for i in items] == ["q"]
+    # The decrypted token stays on the admin surface.
+    assert items[0]["key"] is None
 
 
 @pytest.mark.asyncio
@@ -96,17 +118,42 @@ async def test_revoke_unknown_id_is_404(api_db: ApiDb) -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_admin_cannot_mint_key(api_db: ApiDb) -> None:
+async def test_viewer_cannot_mint_key(api_db: ApiDb) -> None:
     ws = await api_db.seed_workspace(slug="ak-role", name="ak-role")
-    member = await api_db.seed_user(email="ak-member@example.com")
-    await api_db.seed_membership(workspace_id=ws.id, user_id=member.id, role=Role.QA)
-    async with api_db.client(member) as c:
+    viewer = await _member(api_db, ws, email="ak-viewer@example.com", role=Role.VIEWER)
+    async with api_db.client(viewer) as c:
         resp = await c.post(
             f"/api/v1/workspaces/{ws.id}/api-keys",
             headers=_h(ws.id),
             json={"name": "nope"},
         )
         assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_qa_revokes_own_key_but_not_another_members(api_db: ApiDb) -> None:
+    admin, ws = await _admin_ws(api_db, email="ak-own-admin@example.com", slug="ak-own")
+    qa = await _member(api_db, ws, email="ak-own-qa@example.com", role=Role.QA)
+    async with api_db.client(admin) as c:
+        foreign = await c.post(
+            f"/api/v1/workspaces/{ws.id}/api-keys", headers=_h(ws.id), json={"name": "admin-key"}
+        )
+    foreign_id = foreign.json()["id"]
+    async with api_db.client(qa) as c:
+        mine = await c.post(
+            f"/api/v1/workspaces/{ws.id}/api-keys", headers=_h(ws.id), json={"name": "qa-key"}
+        )
+        denied = await c.delete(
+            f"/api/v1/workspaces/{ws.id}/api-keys/{foreign_id}", headers=_h(ws.id)
+        )
+        assert denied.status_code == 404, denied.text
+        allowed = await c.delete(
+            f"/api/v1/workspaces/{ws.id}/api-keys/{mine.json()['id']}", headers=_h(ws.id)
+        )
+        assert allowed.status_code == 204, allowed.text
+    async with api_db.client(admin) as c:
+        remaining = await c.get(f"/api/v1/workspaces/{ws.id}/api-keys", headers=_h(ws.id))
+        assert [i["name"] for i in remaining.json()["items"]] == ["admin-key"]
 
 
 async def _mint_key(api_db: ApiDb, *, email: str, slug: str) -> tuple[str, str]:

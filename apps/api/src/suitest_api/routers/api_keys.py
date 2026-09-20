@@ -33,6 +33,10 @@ from suitest_api.services import api_key_service
 
 router = APIRouter(prefix="/api/v1", tags=["api-keys"])
 
+#: Minting/revoking a key is QA+; VIEWER is excluded because a key authenticates
+#: as ``Role.QA`` (see ``deps/api_key.py``) — letting read-only members mint one
+#: would be a privilege escalation.
+_WRITER_ROLES = {Role.QA, Role.ADMIN, Role.OWNER}
 _ADMIN_ROLES = {Role.ADMIN, Role.OWNER}
 
 
@@ -53,13 +57,14 @@ async def whoami(
     )
 
 
-def _to_item(row: ApiKey) -> ApiKeyItem:
+def _to_item(row: ApiKey, *, include_key: bool) -> ApiKeyItem:
     return ApiKeyItem(
         id=row.id,
         name=row.name,
         key_prefix=row.key_prefix,
-        # Decrypted full token so admins can re-copy it (NULL for pre-0043 keys).
-        key=row.key_encrypted,
+        # Decrypted full token so its owner (or an admin) can re-copy it. Only
+        # the admin surface and the creating response ever carry it.
+        key=row.key_encrypted if include_key else None,
         created_at=row.created_at,
         last_used_at=row.last_used_at,
         expires_at=row.expires_at,
@@ -69,13 +74,17 @@ def _to_item(row: ApiKey) -> ApiKeyItem:
 
 @router.get("/workspaces/{workspaceId}/api-keys", response_model=ApiKeyList)
 async def list_keys(
-    # Admin-gated: the list returns the decrypted full key, so it must not be
-    # visible to plain members (QA/VIEWER).
-    ctx: TenantContext = Depends(require_role(_ADMIN_ROLES)),
+    # QA+ may list keys. The list carries the decrypted token for keys created
+    # before the encrypted column, so non-admins see only their own keys —
+    # ``key`` stays populated for the admin surface only.
+    ctx: TenantContext = Depends(require_role(_WRITER_ROLES)),
     session: AsyncSession = Depends(get_async_session),
 ) -> ApiKeyList:
-    rows = await api_key_service.list_api_keys(session, ctx.workspace_id)
-    return ApiKeyList(items=[_to_item(r) for r in rows])
+    admin = ctx.role in _ADMIN_ROLES
+    rows = await api_key_service.list_api_keys(
+        session, ctx.workspace_id, created_by=None if admin else ctx.user_id
+    )
+    return ApiKeyList(items=[_to_item(r, include_key=admin) for r in rows])
 
 
 @router.post(
@@ -85,7 +94,7 @@ async def list_keys(
 )
 async def create_key(
     body: ApiKeyCreateRequest,
-    ctx: TenantContext = Depends(require_role(_ADMIN_ROLES)),
+    ctx: TenantContext = Depends(require_role(_WRITER_ROLES)),
     session: AsyncSession = Depends(get_async_session),
 ) -> ApiKeyCreated:
     row, token = await api_key_service.create_api_key(
@@ -96,7 +105,7 @@ async def create_key(
         expires_in_days=body.expires_in_days,
     )
     await session.commit()
-    item = _to_item(row)
+    item = _to_item(row, include_key=True)
     # ``item.key`` already carries the token (decrypted from the row); ensure the
     # freshly-minted plaintext is returned even if encryption is unconfigured.
     return ApiKeyCreated(**{**item.model_dump(), "key": token})
@@ -108,11 +117,15 @@ async def create_key(
 )
 async def revoke_key(
     keyId: str,
-    ctx: TenantContext = Depends(require_role(_ADMIN_ROLES)),
+    ctx: TenantContext = Depends(require_role(_WRITER_ROLES)),
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
     row = await api_key_service.revoke_api_key(
-        session, workspace_id=ctx.workspace_id, user_id=ctx.user_id, key_id=keyId
+        session,
+        workspace_id=ctx.workspace_id,
+        user_id=ctx.user_id,
+        key_id=keyId,
+        owner_id=None if ctx.role in _ADMIN_ROLES else ctx.user_id,
     )
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")

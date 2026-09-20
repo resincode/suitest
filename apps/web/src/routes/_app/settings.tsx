@@ -38,6 +38,9 @@ function SettingsScreen(): React.ReactElement {
 
   const forcePassword = search.force_password === "1" || user.must_change_password === true;
   const showMembers = canSeeMembers(role);
+  // QA and above may mint/revoke API keys; a minted key authenticates as QA,
+  // so VIEWER stays read-only here.
+  const canWriteApiKeys = role === "OWNER" || role === "ADMIN" || role === "QA";
   const tab = search.tab;
 
   return (
@@ -92,7 +95,7 @@ function SettingsScreen(): React.ReactElement {
 
         {workspaceId ? (
           <TabsContent value="api-keys" className="pt-4">
-            <ApiKeysSettingsPanel canWrite={showMembers} />
+            <ApiKeysSettingsPanel canWrite={canWriteApiKeys} />
           </TabsContent>
         ) : null}
       </Tabs>

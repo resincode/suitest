@@ -169,6 +169,16 @@ Surfaces tier + autonomy + MCP + embeddings state. **No auth required** — fron
 | POST | `/api/v1/admin/users/:userId/reset-password` | `is_superuser` only; returns one-time temporary password |
 | GET | `/api/v1/admin/password-reset-requests` | `is_superuser` only; lists encrypted reset links after decryption |
 
+**Programmatic API keys** (`routers/api_keys.py`) — a key authenticates as
+`Role.QA` (see `deps/api_key.py`), so VIEWER is refused everywhere below.
+
+| Method | Path | Purpose |
+|--------|------|--------|
+| GET | `/api/v1/workspaces/:id/api-keys` | List keys. ADMIN/OWNER see every workspace key (token re-copyable); QA see only keys they created (`key: null`) |
+| POST | `/api/v1/workspaces/:id/api-keys` | Mint a key. **QA/ADMIN/OWNER** — plaintext `key` returned once |
+| DELETE | `/api/v1/workspaces/:id/api-keys/:keyId` | Revoke a key. QA may revoke only its own (404 otherwise); ADMIN/OWNER revoke any |
+| GET | `/api/v1/api-keys/whoami` | Verify a key (Bearer or `X-API-Key`); returns the workspace it authenticates to |
+
 `POST /auth/register` is intentionally not mounted after M1e. Suitest OSS is invite-only after first-install bootstrap.
 
 **DELETE `/workspaces/:id`** body (required):

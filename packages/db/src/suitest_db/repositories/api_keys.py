@@ -49,13 +49,20 @@ class ApiKeyRepo:
         await self.session.flush()
         return row
 
-    async def list_active(self, workspace_id: str) -> Sequence[ApiKey]:
-        """All non-revoked keys for a workspace, newest first."""
-        result = await self.session.scalars(
-            select(ApiKey)
-            .where(ApiKey.workspace_id == workspace_id, ApiKey.revoked_at.is_(None))
-            .order_by(ApiKey.created_at.desc())
+    async def list_active(
+        self, workspace_id: str, created_by: uuid.UUID | None = None
+    ) -> Sequence[ApiKey]:
+        """Non-revoked keys for a workspace, newest first.
+
+        ``created_by`` narrows the result to one creator's keys — the QA
+        scoping: members may list what they minted, admins see everything.
+        """
+        stmt = select(ApiKey).where(
+            ApiKey.workspace_id == workspace_id, ApiKey.revoked_at.is_(None)
         )
+        if created_by is not None:
+            stmt = stmt.where(ApiKey.created_by == created_by)
+        result = await self.session.scalars(stmt.order_by(ApiKey.created_at.desc()))
         return result.all()
 
     async def get_by_id(self, workspace_id: str, key_id: str) -> ApiKey | None:
@@ -79,10 +86,21 @@ class ApiKeyRepo:
             return None
         return row
 
-    async def revoke(self, workspace_id: str, key_id: str) -> ApiKey | None:
-        row = await self.get_by_id(workspace_id, key_id)
+    async def revoke(
+        self, workspace_id: str, key_id: str, created_by: uuid.UUID | None = None
+    ) -> ApiKey | None:
+        """Revoke a key; ``created_by`` restricts revocation to the owner's keys.
+
+        Returns ``None`` when the key does not exist, is already revoked, or
+        (when ``created_by`` is set) belongs to someone else — callers surface
+        all three as 404 without distinguishing them.
+        """
+        stmt = select(ApiKey).where(ApiKey.id == key_id, ApiKey.workspace_id == workspace_id)
+        if created_by is not None:
+            stmt = stmt.where(ApiKey.created_by == created_by)
+        row = await self.session.scalar(stmt)
         if row is None or row.revoked_at is not None:
-            return row
+            return None
         row.revoked_at = datetime.now(UTC)
         await self.session.flush()
         return row

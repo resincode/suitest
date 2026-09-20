@@ -70,15 +70,27 @@ async def create_api_key(
     return row, token
 
 
-async def list_api_keys(session: AsyncSession, workspace_id: str) -> Sequence[ApiKey]:
-    return await ApiKeyRepo(session).list_active(workspace_id)
+async def list_api_keys(
+    session: AsyncSession, workspace_id: str, created_by: str | None = None
+) -> Sequence[ApiKey]:
+    """List active keys; ``created_by`` narrows to one member's own keys."""
+    owner = uuid.UUID(created_by) if created_by is not None else None
+    return await ApiKeyRepo(session).list_active(workspace_id, created_by=owner)
 
 
 async def revoke_api_key(
-    session: AsyncSession, *, workspace_id: str, user_id: str, key_id: str
+    session: AsyncSession,
+    *,
+    workspace_id: str,
+    user_id: str,
+    key_id: str,
+    owner_id: str | None = None,
 ) -> ApiKey | None:
-    """Revoke a key. Returns ``None`` when it does not exist in the workspace."""
-    row = await ApiKeyRepo(session).revoke(workspace_id, key_id)
+    """Revoke a key; ``owner_id`` (set for non-admin callers) restricts the
+    revocation to keys the caller created. Returns ``None`` when the key does
+    not exist in the workspace or is not owned by the caller."""
+    owner = uuid.UUID(owner_id) if owner_id is not None else None
+    row = await ApiKeyRepo(session).revoke(workspace_id, key_id, created_by=owner)
     if row is None:
         return None
     await write_audit(

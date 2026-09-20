@@ -38,7 +38,7 @@ export function ApiKeysSettingsPanel({ canWrite }: { canWrite: boolean }): React
         void queryClient.invalidateQueries({ queryKey: API_KEYS_QUERY_KEY });
       })
       .catch(() => {
-        setError("Couldn't create a key. Admin access to this workspace is required.");
+        setError("Couldn't create a key. QA-level access to this workspace is required.");
       })
       .finally(() => {
         setCreating(false);
@@ -89,7 +89,7 @@ export function ApiKeysSettingsPanel({ canWrite }: { canWrite: boolean }): React
             </Button>
           </form>
         ) : (
-          <p className="text-[12px] text-fg-4">Only workspace admins can create or revoke keys.</p>
+          <p className="text-[12px] text-fg-4">Only QA, admins, and owners can create or revoke keys.</p>
         )}
 
         {error ? (
