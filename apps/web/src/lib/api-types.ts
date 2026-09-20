@@ -1230,7 +1230,10 @@ export interface paths {
          * Invoke Mcp Provider
          * @description Dev-aid: invoke one tool ad-hoc against a custom provider (tool browser).
          *
-         *     Role-gated to ``ADMIN``+ (MCP_PLUGINS §11). Every call is audit-logged with
+         *     Role-gated to ``ADMIN``+ (MCP_PLUGINS §11) and LLM-gated at the runtime
+         *     layer: the invariant ``LLM not validated => MCP unavailable`` holds for
+         *     this direct-execution path too, not only for runs and the agent. Every
+         *     call is audit-logged with
          *     ``invocation_source=tool_browser`` and an ``arg_hash`` (raw args are not
          *     persisted). Builtins are not ad-hoc invokable here (409) — they run through
          *     the runner. Tool failures surface as ``ok=false`` with the error message.
